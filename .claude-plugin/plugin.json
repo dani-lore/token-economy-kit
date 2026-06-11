@@ -1,0 +1,6 @@
+{
+  "name": "token-economy",
+  "description": "Token-efficient Claude Code sessions: blocks blind full-file reads (PreToolUse hook), injects a 5-line exploration policy (SessionStart), ships the exploring-codebase skill and the low-cost scout agent.",
+  "version": "1.0.0",
+  "author": { "name": "Daniele Lorenzini" }
+}

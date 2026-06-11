@@ -1,0 +1,7 @@
+{
+  "name": "token-economy",
+  "owner": { "name": "Daniele Lorenzini" },
+  "plugins": [
+    { "name": "token-economy", "source": "./", "description": "Token-efficient sessions: read-guard hook, exploration policy, exploring-codebase skill, scout agent." }
+  ]
+}
