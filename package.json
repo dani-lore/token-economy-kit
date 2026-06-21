@@ -1,0 +1,12 @@
+{
+  "name": "token-economy-kit",
+  "version": "0.1.0",
+  "description": "Claude Code plugin that cuts input-side context bloat: read-guard hook, scout subagent, locate-don't-read policy.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\"",
+    "bench": "node benchmarks/score.mjs"
+  },
+  "license": "MIT"
+}
