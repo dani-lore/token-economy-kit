@@ -43,6 +43,12 @@ Run the hook test suite with `npm test`.
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocol | On-demand skill: full decision tree (which tool for which question), scout dispatch template, examples of effective semantic queries, cases where direct Read IS the right choice. The detail lives in the skill precisely to avoid bloating the fixed context. |
 | **scout** | `agents/scout.md` | Delegation | Subagent on the **Haiku** model (~20-30× cheaper than top models): performs broad reconnaissance (3+ files, architectural overviews) in its *own* context and reports only conclusions with `path:line` references, max ~40 lines, never file dumps. Everything it reads dies with it. |
 
+**Commands** (slash commands, on demand):
+
+- `/context-audit` — runs the input-bloat benchmark against the current repo and
+  reports how much the guard saves *here* (cut ratio, files over limit, worst offenders).
+- `/economy-help` — quick reference: principle, components, order of operations, commands.
+
 ### Why this architecture (design rationale)
 
 - **Short policy + detail skill**: a long policy in the fixed context gets respected less and is itself waste. The 5 injected lines point to the skill, which only loads when exploration is needed.
