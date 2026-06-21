@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+
+# Auto-generated bench output (named results/<date>.md); curated reports kept by hand
+benchmarks/results/2[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md

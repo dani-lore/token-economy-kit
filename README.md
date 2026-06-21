@@ -17,6 +17,23 @@ Two facts drive the design of this kit:
 
 The operating principle is: **locate, don't read**. Search (semantic or pattern-based) finds the location; Read is surgical (`offset`/`limit`) and only used to act (Edit, targeted verification). Reading is not forbidden — reading *blindly* is.
 
+### Numbers
+
+The saving is input-side (tokens spent *reading*) and scales with how much
+oversized material a repo carries. Measured deterministically by
+[`benchmarks/score.mjs`](benchmarks/score.mjs) — no API calls, runs in CI:
+
+| corpus | files over limit | input-token cut |
+|---|--:|--:|
+| clean app template (fastapi) | 2 / 213 | **6.1%** |
+| mid-size codebase (vscode-python) | 42 / 1,415 | **27.3%** |
+
+The cut is biggest where an agent would otherwise read generated/aggregate files
+in full (`package-lock.json`: 303k → 7k tokens) and ~0% on already-lean repos —
+the harness reports that honestly rather than a single flattering figure. Method,
+limits, and reproduction: [benchmarks/README.md](benchmarks/README.md).
+Run the hook test suite with `npm test`.
+
 ## 2. The 4 plugin components
 
 | Component | File | Level | What it does |
