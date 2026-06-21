@@ -17,6 +17,23 @@ Two facts drive the design of this kit:
 
 The operating principle is: **locate, don't read**. Search (semantic or pattern-based) finds the location; Read is surgical (`offset`/`limit`) and only used to act (Edit, targeted verification). Reading is not forbidden — reading *blindly* is.
 
+### Numbers
+
+The saving is input-side (tokens spent *reading*) and scales with how much
+oversized material a repo carries. Measured deterministically by
+[`benchmarks/score.mjs`](benchmarks/score.mjs) — no API calls, runs in CI:
+
+| corpus | files over limit | input-token cut |
+|---|--:|--:|
+| clean app template (fastapi) | 2 / 213 | **6.1%** |
+| mid-size codebase (vscode-python) | 42 / 1,415 | **27.3%** |
+
+The cut is biggest where an agent would otherwise read generated/aggregate files
+in full (`package-lock.json`: 303k → 7k tokens) and ~0% on already-lean repos —
+the harness reports that honestly rather than a single flattering figure. Method,
+limits, and reproduction: [benchmarks/README.md](benchmarks/README.md).
+Run the hook test suite with `npm test`.
+
 ## 2. The 4 plugin components
 
 | Component | File | Level | What it does |
@@ -25,6 +42,12 @@ The operating principle is: **locate, don't read**. Search (semantic or pattern-
 | **inject-policy** | `hooks/inject-policy.mjs` | Policy | SessionStart hook: injects 5 policy lines into every session's context. Users who install the plugin don't need to touch their `CLAUDE.md` (but can, see §5). |
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocol | On-demand skill: full decision tree (which tool for which question), scout dispatch template, examples of effective semantic queries, cases where direct Read IS the right choice. The detail lives in the skill precisely to avoid bloating the fixed context. |
 | **scout** | `agents/scout.md` | Delegation | Subagent on the **Haiku** model (~20-30× cheaper than top models): performs broad reconnaissance (3+ files, architectural overviews) in its *own* context and reports only conclusions with `path:line` references, max ~40 lines, never file dumps. Everything it reads dies with it. |
+
+**Commands** (slash commands, on demand):
+
+- `/context-audit` — runs the input-bloat benchmark against the current repo and
+  reports how much the guard saves *here* (cut ratio, files over limit, worst offenders).
+- `/economy-help` — quick reference: principle, components, order of operations, commands.
 
 ### Why this architecture (design rationale)
 
