@@ -15,6 +15,8 @@ const BINARY_EXTS = new Set([
 
 const MAX_BYTES = 262144; // 256 KB
 const MAX_LINES = 600;
+const DENSE_AVG = 400;      // avg bytes/line above which a file reads as dense/generated
+const DENSE_BYTES = 50 * 1024; // only apply the dense rule past this size
 
 // Commands that print an entire file to stdout (→ into context). head/tail are
 // self-limiting (default 10 lines) so they are NOT guarded; only whole-file dumps.
@@ -82,6 +84,22 @@ function oversizeReason(filePath, verb) {
     return {
       reason: `${verb} blocked: "${filePath}" has ${lines} lines ` +
         `(limit ${MAX_LINES} for blind reads). ${ALTERNATIVES}`,
+      lines,
+      bytes,
+      saved,
+    };
+  }
+  // Dense/generated file: under both hard limits by line count and byte size,
+  // but each line is so long (minified/generated) that a blind read still
+  // bloats context proportionally to bytes, not lines.
+  const avgLineLen = bytes / lines;
+  if (avgLineLen > DENSE_AVG && bytes > DENSE_BYTES) {
+    // `saved` is a rough ceiling: tokens avoided vs. reading the whole file,
+    // against a guarded read capped at DENSE_BYTES.
+    const saved = tokens(bytes) - tokens(DENSE_BYTES);
+    return {
+      reason: `${verb} blocked: "${filePath}" looks dense/generated ` +
+        `(avg ${Math.round(avgLineLen)} bytes/line over ${lines} lines). ${ALTERNATIVES}`,
       lines,
       bytes,
       saved,

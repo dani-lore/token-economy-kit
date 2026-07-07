@@ -186,6 +186,25 @@ test('shell command that is not a dump is allowed', () => {
   assert.equal(decision, null);
 });
 
+// --- dense/generated file guard (high avg line length, under both hard limits) ---
+
+test('dense file under both line and byte limits is denied', () => {
+  const p = join(dir, 'dense.txt');
+  // 200 lines * ~750 chars/line ≈ 150 KB total: under 600 lines AND under 256 KB,
+  // but avg bytes/line (~751) is well above the DENSE_AVG threshold (400).
+  const content = Array.from({ length: 200 }, (_, i) => `x${i}`.padEnd(750, 'y')).join('\n');
+  writeFileSync(p, content);
+  const { decision, stdout } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
+  assert.equal(decision, 'deny');
+  assert.match(stdout, /dense|generated/);
+});
+
+test('550-line file of short lines is allowed (not dense)', () => {
+  const p = makeFile(dir, 'short-lines.txt', 550);
+  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
+  assert.equal(decision, null);
+});
+
 // --- realized-savings telemetry (logged at deny time) ---
 
 test('a deny writes a telemetry record to .claude/token-economy/denied.jsonl', () => {

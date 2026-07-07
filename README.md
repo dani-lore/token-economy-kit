@@ -56,6 +56,7 @@ Run the hook test suite with `npm test`.
 - **Short policy + detail skill**: a long policy in the fixed context gets respected less and is itself waste. The 5 injected lines point to the skill, which only loads when exploration is needed.
 - **Subagent for exploration**: when a subagent explores, the files read and raw outputs stay in its isolated context; only the summary returns to the main session. It's the most robust way to keep context clean, and it's native (no external dependencies).
 - **600-line / 256 KB thresholds**: high enough not to interfere with normal work (configs, mid-size components pass through), low enough to catch the files that hurt context. Adjustable at the top of `read-guard.mjs` (`MAX_LINES`, `MAX_BYTES`).
+- **Dense/generated-file rule**: a pure size/shape heuristic (no filename allowlist) that catches files sitting under both hard limits but with a very high average line length (minified bundles, generated data) — still a blind-read bloat risk. Tunable via `DENSE_AVG` (bytes/line) and `DENSE_BYTES` (minimum size to apply the rule) in `read-guard.mjs`.
 - **Fail-open**: a guardrail that blocks work due to a bug causes more damage than the waste it prevents.
 
 ## 3. Prerequisites

@@ -39,6 +39,7 @@ Il principio operativo è: **localizza, non leggere**. La ricerca (semantica o p
 - **Policy breve + skill di dettaglio**: una policy lunga nel contesto fisso viene rispettata meno ed è essa stessa spreco. Le 5 righe iniettate rimandano alla skill, che si carica solo quando serve esplorare.
 - **Subagent per l'esplorazione**: quando un subagent esplora, i file letti e gli output grezzi restano nel suo contesto isolato; alla sessione principale torna solo la sintesi. È il modo più robusto per non sporcare il contesto, ed è nativo (nessuna dipendenza esterna).
 - **Soglie 600 righe / 256 KB**: abbastanza alte da non intralciare il lavoro normale (config, componenti medi passano), abbastanza basse da intercettare i file che fanno male al contesto. Modificabili in testa a `read-guard.mjs` (`MAX_LINES`, `MAX_BYTES`).
+- **Regola file densi/generati**: euristica pura su dimensione/forma (nessuna allowlist per nome file) che intercetta file sotto entrambi i limiti rigidi ma con lunghezza media di riga molto alta (bundle minificati, dati generati) — comunque a rischio di bloat su una Read cieca. Configurabile via `DENSE_AVG` (byte/riga) e `DENSE_BYTES` (dimensione minima per applicare la regola) in `read-guard.mjs`.
 - **Fail-open**: un guardrail che per un bug blocca il lavoro fa più danni dello spreco che previene.
 
 ## 3. Prerequisiti
