@@ -1,6 +1,8 @@
 // SessionStart hook: injects token economy policy into session context.
 // Claude Code captures stdout from SessionStart hooks as context.
 
+if (process.env.TOKEN_ECONOMY_INJECT === '0') process.exit(0);
+
 process.stdout.write(`=== Token Economy policy (plugin) ===
 Locate, don't read. Mandatory order:
 1. Locating code -> grepai_search / grepai_trace_* (if indexed), else Grep/Glob. Never exploratory Read.

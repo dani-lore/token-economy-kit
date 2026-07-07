@@ -17,20 +17,50 @@ Due fatti guidano il design di questo kit:
 
 Il principio operativo è: **localizza, non leggere**. La ricerca (semantica o pattern) trova il punto; la Read è chirurgica (`offset`/`limit`) e serve solo per agire (Edit, verifica puntuale). Leggere non è vietato — è vietato leggere *alla cieca*.
 
+### Numeri
+
+Il risparmio è lato input (token spesi *in lettura*) e scala con quanto
+materiale sovradimensionato porta un repo. Misurato in modo deterministico da
+[`benchmarks/score.mjs`](benchmarks/score.mjs) — nessuna chiamata API, gira in CI:
+
+| corpus | file oltre il limite | taglio input-token (tetto massimo) |
+|---|--:|--:|
+| template app pulito (fastapi) | 2 / 213 | **6.1%** |
+| codebase media (vscode-python) | 42 / 1.415 | **27.3%** |
+
+Questo è il *tetto massimo* rimovibile — assume Read complete alla cieca di
+ogni file sovradimensionato — non il risparmio medio effettivamente realizzato
+in una sessione; vedi le "Honesty notes" in
+[benchmarks/README.md](benchmarks/README.md). Il taglio è massimo dove un agente
+altrimenti leggerebbe per intero file generati/aggregati
+(`package-lock.json`: 303k → 7k token) e ~0% su repo già snelli — l'harness lo
+riporta onestamente invece di un singolo numero lusinghiero. Metodo, limiti e
+riproduzione: [benchmarks/README.md](benchmarks/README.md).
+Esegui la suite di test dell'hook con `npm test`.
+
 ## 2. I 4 componenti del plugin
 
 | Componente | File | Livello | Cosa fa |
 |---|---|---|---|
-| **read-guard** | `hooks/read-guard.mjs` | Enforcement | Hook PreToolUse: nega le Read senza `offset`/`limit` su file di testo > 600 righe o > 256 KB. Il messaggio di rifiuto indica le 3 alternative (ricerca → Read mirata → subagent scout). Fail-open: qualsiasi errore interno dell'hook lascia passare la Read — non blocca mai il lavoro per un proprio bug. |
+| **read-guard** | `hooks/read-guard.mjs` | Enforcement | Hook PreToolUse: nega le Read senza `offset`/`limit` su file di testo > 600 righe o > 256 KB, e i dump shell di file interi (`cat`/`type`/`Get-Content`/`gc`) della stessa dimensione, che altrimenti aggirerebbero il guard. Le letture con pipe/redirect o già limitate (`cat f \| grep`, `Get-Content f -TotalCount 50`) passano. Il messaggio di rifiuto indica le 3 alternative (ricerca, Read mirata, subagent scout). Fail-open: qualsiasi errore interno dell'hook lascia passare la chiamata, non blocca mai il lavoro per un proprio bug. |
 | **inject-policy** | `hooks/inject-policy.mjs` | Policy | Hook SessionStart: inietta 5 righe di policy nel contesto di ogni sessione. Chi installa il plugin non deve toccare il proprio `CLAUDE.md` (ma può, vedi §5). |
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocollo | Skill caricata on demand: decision tree completo (quale strumento per quale domanda), template di dispatch per scout, esempi di query semantiche efficaci, casi in cui la Read diretta È la scelta giusta. Il dettaglio sta nella skill proprio per non pesare sul contesto fisso. |
 | **scout** | `agents/scout.md` | Delega | Subagent su modello **Haiku** (~20-30× più economico dei modelli top): esegue ricognizioni ampie (3+ file, panoramiche architetturali) nel *proprio* contesto e riporta solo conclusioni con riferimenti `path:line`, max ~40 righe, mai dump di file. Le letture che fa muoiono con lui. |
+
+**Comandi** (slash command, su richiesta):
+
+- `/context-audit` — esegue il benchmark di input-bloat sul repo corrente e
+  riporta quanto risparmia il guard *qui* (rapporto di riduzione, file oltre soglia, peggiori casi).
+- `/economy-stats` — riporta il risparmio realmente registrato dal guard al momento del deny
+  (`.claude/token-economy/denied.jsonl`), a differenza del limite massimo statico di `/context-audit`.
+- `/economy-help` — riferimento rapido: principio, componenti, ordine delle operazioni, comandi.
 
 ### Perché questa architettura (presupposti delle scelte)
 
 - **Policy breve + skill di dettaglio**: una policy lunga nel contesto fisso viene rispettata meno ed è essa stessa spreco. Le 5 righe iniettate rimandano alla skill, che si carica solo quando serve esplorare.
 - **Subagent per l'esplorazione**: quando un subagent esplora, i file letti e gli output grezzi restano nel suo contesto isolato; alla sessione principale torna solo la sintesi. È il modo più robusto per non sporcare il contesto, ed è nativo (nessuna dipendenza esterna).
 - **Soglie 600 righe / 256 KB**: abbastanza alte da non intralciare il lavoro normale (config, componenti medi passano), abbastanza basse da intercettare i file che fanno male al contesto. Modificabili in testa a `read-guard.mjs` (`MAX_LINES`, `MAX_BYTES`).
+- **Regola file densi/generati**: euristica pura su dimensione/forma (nessuna allowlist per nome file) che intercetta file sotto entrambi i limiti rigidi ma con lunghezza media di riga molto alta (bundle minificati, dati generati) — comunque a rischio di bloat su una Read cieca. Configurabile via `DENSE_AVG` (byte/riga) e `DENSE_BYTES` (dimensione minima per applicare la regola) in `read-guard.mjs`.
 - **Fail-open**: un guardrail che per un bug blocca il lavoro fa più danni dello spreco che previene.
 
 ## 3. Prerequisiti
@@ -85,7 +115,7 @@ Poi registra gli hook in `~/.claude/settings.json` (adatta i path; su macOS/Linu
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\read-guard.mjs\"" }
         ]
@@ -127,7 +157,7 @@ Facoltativa ma coerente col sistema, sempre nel CLAUDE.md globale:
 
 > Se usi il plugin [superpowers](https://github.com/anthropics/claude-plugins) (o skill di processo equivalenti come `brainstorming` / `writing-plans`), puoi aggiungere anche una riga che le richiama esplicitamente per i task non triviali. **Non è un prerequisito**: questo kit non dipende da superpowers né da altre skill di processo.
 
-Se usi sia il plugin sia il CLAUDE.md, la policy compare due volte (innocuo, ~80 token). Per evitarlo: rimuovi l'hook SessionStart dal tuo `settings.json` o non aggiungere la sezione al CLAUDE.md.
+Se usi sia il plugin sia il CLAUDE.md, la policy compare due volte (innocuo, ~80 token). Per evitarlo: rimuovi l'hook SessionStart dal tuo `settings.json`, non aggiungere la sezione al CLAUDE.md, oppure imposta la variabile d'ambiente `TOKEN_ECONOMY_INJECT=0` per far uscire l'hook senza stampare nulla.
 
 ## 6. Strumenti consigliati: cosa fanno e come installarli
 

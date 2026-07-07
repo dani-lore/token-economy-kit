@@ -23,12 +23,15 @@ The saving is input-side (tokens spent *reading*) and scales with how much
 oversized material a repo carries. Measured deterministically by
 [`benchmarks/score.mjs`](benchmarks/score.mjs) — no API calls, runs in CI:
 
-| corpus | files over limit | input-token cut |
+| corpus | files over limit | input-token cut (ceiling) |
 |---|--:|--:|
 | clean app template (fastapi) | 2 / 213 | **6.1%** |
 | mid-size codebase (vscode-python) | 42 / 1,415 | **27.3%** |
 
-The cut is biggest where an agent would otherwise read generated/aggregate files
+This is the removable *ceiling* — it assumes blind full Reads of every
+oversized file — not the average saving actually realized in a session; see
+the "Honesty notes" in [benchmarks/README.md](benchmarks/README.md). The cut
+is biggest where an agent would otherwise read generated/aggregate files
 in full (`package-lock.json`: 303k → 7k tokens) and ~0% on already-lean repos —
 the harness reports that honestly rather than a single flattering figure. Method,
 limits, and reproduction: [benchmarks/README.md](benchmarks/README.md).
@@ -38,7 +41,7 @@ Run the hook test suite with `npm test`.
 
 | Component | File | Level | What it does |
 |---|---|---|---|
-| **read-guard** | `hooks/read-guard.mjs` | Enforcement | PreToolUse hook: denies Reads without `offset`/`limit` on text files > 600 lines or > 256 KB. The rejection message lists the 3 alternatives (search → targeted Read → scout subagent). Fail-open: any internal hook error lets the Read through — it never blocks work due to its own bug. |
+| **read-guard** | `hooks/read-guard.mjs` | Enforcement | PreToolUse hook: denies Reads without `offset`/`limit` on text files > 600 lines or > 256 KB, and the same-sized whole-file shell dumps (`cat`/`type`/`Get-Content`/`gc`) that would otherwise bypass the guard. Piped/redirected/bounded reads (`cat f \| grep`, `Get-Content f -TotalCount 50`) pass through. The rejection message lists the 3 alternatives (search → targeted Read → scout subagent). Fail-open: any internal hook error lets the call through — it never blocks work due to its own bug. |
 | **inject-policy** | `hooks/inject-policy.mjs` | Policy | SessionStart hook: injects 5 policy lines into every session's context. Users who install the plugin don't need to touch their `CLAUDE.md` (but can, see §5). |
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocol | On-demand skill: full decision tree (which tool for which question), scout dispatch template, examples of effective semantic queries, cases where direct Read IS the right choice. The detail lives in the skill precisely to avoid bloating the fixed context. |
 | **scout** | `agents/scout.md` | Delegation | Subagent on the **Haiku** model (~20-30× cheaper than top models): performs broad reconnaissance (3+ files, architectural overviews) in its *own* context and reports only conclusions with `path:line` references, max ~40 lines, never file dumps. Everything it reads dies with it. |
@@ -47,6 +50,8 @@ Run the hook test suite with `npm test`.
 
 - `/context-audit` — runs the input-bloat benchmark against the current repo and
   reports how much the guard saves *here* (cut ratio, files over limit, worst offenders).
+- `/economy-stats` — reports realized savings actually logged by the guard at deny
+  time (`.claude/token-economy/denied.jsonl`), vs. `/context-audit`'s static ceiling.
 - `/economy-help` — quick reference: principle, components, order of operations, commands.
 
 ### Why this architecture (design rationale)
@@ -54,6 +59,7 @@ Run the hook test suite with `npm test`.
 - **Short policy + detail skill**: a long policy in the fixed context gets respected less and is itself waste. The 5 injected lines point to the skill, which only loads when exploration is needed.
 - **Subagent for exploration**: when a subagent explores, the files read and raw outputs stay in its isolated context; only the summary returns to the main session. It's the most robust way to keep context clean, and it's native (no external dependencies).
 - **600-line / 256 KB thresholds**: high enough not to interfere with normal work (configs, mid-size components pass through), low enough to catch the files that hurt context. Adjustable at the top of `read-guard.mjs` (`MAX_LINES`, `MAX_BYTES`).
+- **Dense/generated-file rule**: a pure size/shape heuristic (no filename allowlist) that catches files sitting under both hard limits but with a very high average line length (minified bundles, generated data) — still a blind-read bloat risk. Tunable via `DENSE_AVG` (bytes/line) and `DENSE_BYTES` (minimum size to apply the rule) in `read-guard.mjs`.
 - **Fail-open**: a guardrail that blocks work due to a bug causes more damage than the waste it prevents.
 
 ## 3. Prerequisites
@@ -108,7 +114,7 @@ Then register the hooks in `~/.claude/settings.json` (adjust paths; on macOS/Lin
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\read-guard.mjs\"" }
         ]
@@ -150,7 +156,7 @@ Optional but consistent with the system, also in the global CLAUDE.md:
 
 > If you use the [superpowers](https://github.com/anthropics/claude-plugins) plugin (or equivalent process skills like `brainstorming` / `writing-plans`), you can also add a line that invokes them explicitly for non-trivial tasks. **This is not a prerequisite**: this kit does not depend on superpowers or any other process skill.
 
-If you use both the plugin and the CLAUDE.md, the policy appears twice (harmless, ~80 tokens). To avoid it: remove the SessionStart hook from your `settings.json` or don't add the section to CLAUDE.md.
+If you use both the plugin and the CLAUDE.md, the policy appears twice (harmless, ~80 tokens). To avoid it: remove the SessionStart hook from your `settings.json`, don't add the section to CLAUDE.md, or set the environment variable `TOKEN_ECONOMY_INJECT=0` to make the hook exit without printing anything.
 
 ## 6. Recommended tools: what they do and how to install them
 

@@ -1,8 +1,10 @@
-// PreToolUse hook: blocks blind full-file Reads on large text files.
+// PreToolUse hook: blocks blind full-file reads on large text files.
+// Covers the Read tool AND whole-file shell dumps (cat/type/Get-Content/gc),
+// which would otherwise bypass the guard by piping a file into context.
 // Contract: allow = exit 0 + no stdout; deny = exit 0 + JSON on stdout.
 
-import { readFileSync, statSync, existsSync } from 'node:fs';
-import { extname } from 'node:path';
+import { readFileSync, statSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { extname, join } from 'node:path';
 
 const BINARY_EXTS = new Set([
   '.png','.jpg','.jpeg','.gif','.webp','.svg','.ico','.bmp',
@@ -13,6 +15,19 @@ const BINARY_EXTS = new Set([
 
 const MAX_BYTES = 262144; // 256 KB
 const MAX_LINES = 600;
+const DENSE_AVG = 400;      // avg bytes/line above which a file reads as dense/generated
+const DENSE_BYTES = 50 * 1024; // only apply the dense rule past this size
+
+// Commands that print an entire file to stdout (→ into context). head/tail are
+// self-limiting (default 10 lines) so they are NOT guarded; only whole-file dumps.
+const DUMP_CMDS = new Set(['cat', 'type', 'get-content', 'gc']);
+// PowerShell flags that bound Get-Content output → treat as a targeted read, allow.
+const BOUND_FLAGS = ['-totalcount', '-first', '-head', '-tail', '-last'];
+
+const ALTERNATIVES =
+  `Use grepai_search / Grep to locate the relevant section, then Read with offset/limit. ` +
+  `Read only the slice you need: Read(file_path, offset=N, limit=M). ` +
+  `For broad exploration across files, dispatch the \`scout\` agent and ask for conclusions, not dumps.`;
 
 function deny(reason) {
   process.stdout.write(JSON.stringify({
@@ -22,6 +37,90 @@ function deny(reason) {
       permissionDecisionReason: reason,
     },
   }) + '\n');
+}
+
+// ≈4 bytes per token (same estimate factor as benchmarks/score.mjs).
+const tokens = (b) => Math.ceil(b / 4);
+
+// Best-effort append to the realized-savings log. Never throws: a telemetry
+// failure must never block or break a deny (fail-open is sacred here).
+function logDeny(record) {
+  try {
+    const dir = join(process.cwd(), '.claude', 'token-economy');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'denied.jsonl'), JSON.stringify(record) + '\n');
+  } catch {
+    // no-op: logging is not allowed to affect the deny decision
+  }
+}
+
+// A deny descriptor if reading this whole file would bloat context, else null.
+// Shape: { reason, lines, bytes, saved }. `saved` is the estimated tokens
+// avoided vs. a guarded alternative (offset/limit read up to the limit).
+function oversizeReason(filePath, verb) {
+  if (!filePath || !existsSync(filePath)) return null;
+  if (BINARY_EXTS.has(extname(filePath).toLowerCase())) return null;
+
+  const { size: bytes } = statSync(filePath);
+  if (bytes > MAX_BYTES) {
+    // Don't read the content of an over-limit-by-size file just to report on it.
+    const saved = tokens(bytes) - tokens(MAX_BYTES);
+    return {
+      reason: `${verb} blocked: "${filePath}" is ${(bytes / 1024).toFixed(0)} KB ` +
+        `(limit 256 KB for blind reads). ${ALTERNATIVES}`,
+      lines: null,
+      bytes,
+      saved,
+    };
+  }
+  const content = readFileSync(filePath, 'utf8');
+  const lines = (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1);
+  if (lines > MAX_LINES) {
+    // `saved` is a ceiling: tokens avoided vs. reading the whole file. It can be
+    // 0 when the overflow is a few very short lines (same 4-byte token bucket),
+    // never negative/NaN — guarded content is always a prefix of the file.
+    const guarded = content.split('\n').slice(0, MAX_LINES).join('\n');
+    const saved = tokens(bytes) - tokens(Buffer.byteLength(guarded, 'utf8'));
+    return {
+      reason: `${verb} blocked: "${filePath}" has ${lines} lines ` +
+        `(limit ${MAX_LINES} for blind reads). ${ALTERNATIVES}`,
+      lines,
+      bytes,
+      saved,
+    };
+  }
+  // Dense/generated file: under both hard limits by line count and byte size,
+  // but each line is so long (minified/generated) that a blind read still
+  // bloats context proportionally to bytes, not lines.
+  const avgLineLen = bytes / lines;
+  if (avgLineLen > DENSE_AVG && bytes > DENSE_BYTES) {
+    // `saved` is a rough ceiling: tokens avoided vs. reading the whole file,
+    // against a guarded read capped at DENSE_BYTES.
+    const saved = tokens(bytes) - tokens(DENSE_BYTES);
+    return {
+      reason: `${verb} blocked: "${filePath}" looks dense/generated ` +
+        `(avg ${Math.round(avgLineLen)} bytes/line over ${lines} lines). ${ALTERNATIVES}`,
+      lines,
+      bytes,
+      saved,
+    };
+  }
+  return null;
+}
+
+// The file a whole-file dump command would print, or null if it is not a blind
+// dump. ponytail: catches the common `cat <path>` case; misses relative paths
+// after a `cd` and multi-file dumps (fail-open) — a full fix needs shell emulation.
+function dumpTarget(command) {
+  if (!command || /[|>]/.test(command)) return null; // piped/redirected → filtered, not context bloat
+  const seg = command.split(/&&|;/).pop().trim();
+  const m = seg.match(/^(\S+)\s+(.+)$/);
+  if (!m || !DUMP_CMDS.has(m[1].toLowerCase())) return null;
+  const rest = m[2];
+  if (BOUND_FLAGS.some((f) => rest.toLowerCase().includes(f))) return null;
+  // First non-flag argument = the file (tolerates quotes and leading flags).
+  const a = rest.match(/(?:^|\s)(?!-)(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  return a ? (a[1] || a[2] || a[3]) : null;
 }
 
 // Read all stdin via event-based approach (works on Windows PowerShell pipes)
@@ -45,45 +144,31 @@ try {
   let payload;
   try { payload = JSON.parse(stripped); } catch { process.exit(0); }
 
-  // Only intercept Read tool
-  if (payload.tool_name !== 'Read') process.exit(0);
-
   const input = payload.tool_input ?? {};
 
-  // Allow if offset or limit is specified (targeted read)
-  if (input.offset != null || input.limit != null) process.exit(0);
-
-  const filePath = input.file_path;
-  if (!filePath || !existsSync(filePath)) process.exit(0);
-
-  // Allow binary/special extensions
-  const ext = extname(filePath).toLowerCase();
-  if (BINARY_EXTS.has(ext)) process.exit(0);
-
-  // Size check — avoids reading huge files into memory
-  const { size } = statSync(filePath);
-  if (size > MAX_BYTES) {
-    deny(
-      `Read blocked: "${filePath}" is ${(size / 1024).toFixed(0)} KB (limit 256 KB for blind reads). ` +
-      `Use grepai_search / Grep to locate the relevant section, then Read with offset/limit. ` +
-      `Read only the slice you need: Read(file_path, offset=N, limit=M). ` +
-      `For broad exploration across files, dispatch the \`scout\` agent and ask for conclusions, not dumps.`
-    );
+  if (payload.tool_name === 'Read') {
+    // Allow if offset or limit is specified (targeted read)
+    if (input.offset != null || input.limit != null) process.exit(0);
+    const oversize = oversizeReason(input.file_path, 'Read');
+    if (oversize) {
+      logDeny({ t: Date.now(), tool: 'Read', path: input.file_path, lines: oversize.lines, bytes: oversize.bytes, saved: oversize.saved });
+      deny(oversize.reason);
+    }
     process.exit(0);
   }
 
-  // Line count
-  const content = readFileSync(filePath, 'utf8');
-  const lines = (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1);
+  if (payload.tool_name === 'Bash' || payload.tool_name === 'PowerShell') {
+    const target = dumpTarget(input.command);
+    if (target) {
+      const oversize = oversizeReason(target, 'Full-file dump');
+      if (oversize) {
+        logDeny({ t: Date.now(), tool: payload.tool_name, path: target, lines: oversize.lines, bytes: oversize.bytes, saved: oversize.saved });
+        deny(oversize.reason);
+      }
+    }
+    process.exit(0);
+  }
 
-  if (lines <= MAX_LINES) process.exit(0);
-
-  deny(
-    `Read blocked: "${filePath}" has ${lines} lines (limit ${MAX_LINES} for blind reads). ` +
-    `Use grepai_search / Grep to locate the relevant section, then Read with offset/limit. ` +
-    `Read only the slice you need: Read(file_path, offset=N, limit=M). ` +
-    `For broad exploration across files, dispatch the \`scout\` agent and ask for conclusions, not dumps.`
-  );
   process.exit(0);
 
 } catch {
