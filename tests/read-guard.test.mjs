@@ -108,3 +108,61 @@ test('UTF-8 BOM prefixed payload still parses', () => {
   });
   assert.equal(r.stdout.trim(), '');
 });
+
+// --- shell dump guard (cat/type/Get-Content bypassing the Read guard) ---
+
+test('Bash cat of a large file is denied', () => {
+  const big = makeFile(dir, 'cat-big.txt', 601);
+  const { decision, stdout } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big}` } });
+  assert.equal(decision, 'deny');
+  assert.match(stdout, /601 lines/);
+  assert.match(stdout, /offset/);
+});
+
+test('Bash cat of a small file is allowed', () => {
+  const small = makeFile(dir, 'cat-small.txt', 100);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${small}` } });
+  assert.equal(decision, null);
+});
+
+test('Bash cat piped into a filter is allowed even when large', () => {
+  const big = makeFile(dir, 'cat-pipe.txt', 5000);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big} | grep foo` } });
+  assert.equal(decision, null);
+});
+
+test('Bash cat redirected to a file is allowed', () => {
+  const big = makeFile(dir, 'cat-redir.txt', 5000);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big} > out.txt` } });
+  assert.equal(decision, null);
+});
+
+test('cat with a cd prefix still guards the file', () => {
+  const big = makeFile(dir, 'cat-cd.txt', 5000);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cd /tmp && cat ${big}` } });
+  assert.equal(decision, 'deny');
+});
+
+test('quoted path with spaces is guarded', () => {
+  const big = makeFile(dir, 'big file.txt', 5000);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat "${big}"` } });
+  assert.equal(decision, 'deny');
+});
+
+test('PowerShell Get-Content of a large file is denied', () => {
+  const big = makeFile(dir, 'gc-big.txt', 5000);
+  const { decision } = runHook({ tool_name: 'PowerShell', tool_input: { command: `Get-Content ${big}` } });
+  assert.equal(decision, 'deny');
+});
+
+test('PowerShell Get-Content with -TotalCount is allowed', () => {
+  const big = makeFile(dir, 'gc-bound.txt', 5000);
+  const { decision } = runHook({ tool_name: 'PowerShell', tool_input: { command: `Get-Content ${big} -TotalCount 50` } });
+  assert.equal(decision, null);
+});
+
+test('shell command that is not a dump is allowed', () => {
+  const big = makeFile(dir, 'grep-target.txt', 5000);
+  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `grep foo ${big}` } });
+  assert.equal(decision, null);
+});

@@ -10,7 +10,9 @@ files or persist state.
 
 **Components**
 - `read-guard` (PreToolUse hook) — denies blind Reads of text files over 600
-  lines / 256 KB. The denial lists the alternatives. Fail-open on any hook error.
+  lines / 256 KB, and whole-file shell dumps (`cat`/`type`/`Get-Content`) of the
+  same size. Piped/bounded reads pass. The denial lists the alternatives.
+  Fail-open on any hook error.
 - `inject-policy` (SessionStart hook) — injects the 5-line policy each session.
 - `exploring-codebase` (skill) — the full decision tree: which tool for which
   question, scout dispatch template, when a direct Read is actually right.

@@ -21,7 +21,7 @@ Il principio operativo è: **localizza, non leggere**. La ricerca (semantica o p
 
 | Componente | File | Livello | Cosa fa |
 |---|---|---|---|
-| **read-guard** | `hooks/read-guard.mjs` | Enforcement | Hook PreToolUse: nega le Read senza `offset`/`limit` su file di testo > 600 righe o > 256 KB. Il messaggio di rifiuto indica le 3 alternative (ricerca → Read mirata → subagent scout). Fail-open: qualsiasi errore interno dell'hook lascia passare la Read — non blocca mai il lavoro per un proprio bug. |
+| **read-guard** | `hooks/read-guard.mjs` | Enforcement | Hook PreToolUse: nega le Read senza `offset`/`limit` su file di testo > 600 righe o > 256 KB, e i dump shell di file interi (`cat`/`type`/`Get-Content`/`gc`) della stessa dimensione, che altrimenti aggirerebbero il guard. Le letture con pipe/redirect o già limitate (`cat f \| grep`, `Get-Content f -TotalCount 50`) passano. Il messaggio di rifiuto indica le 3 alternative (ricerca, Read mirata, subagent scout). Fail-open: qualsiasi errore interno dell'hook lascia passare la chiamata, non blocca mai il lavoro per un proprio bug. |
 | **inject-policy** | `hooks/inject-policy.mjs` | Policy | Hook SessionStart: inietta 5 righe di policy nel contesto di ogni sessione. Chi installa il plugin non deve toccare il proprio `CLAUDE.md` (ma può, vedi §5). |
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocollo | Skill caricata on demand: decision tree completo (quale strumento per quale domanda), template di dispatch per scout, esempi di query semantiche efficaci, casi in cui la Read diretta È la scelta giusta. Il dettaglio sta nella skill proprio per non pesare sul contesto fisso. |
 | **scout** | `agents/scout.md` | Delega | Subagent su modello **Haiku** (~20-30× più economico dei modelli top): esegue ricognizioni ampie (3+ file, panoramiche architetturali) nel *proprio* contesto e riporta solo conclusioni con riferimenti `path:line`, max ~40 righe, mai dump di file. Le letture che fa muoiono con lui. |
@@ -85,7 +85,7 @@ Poi registra gli hook in `~/.claude/settings.json` (adatta i path; su macOS/Linu
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\read-guard.mjs\"" }
         ]

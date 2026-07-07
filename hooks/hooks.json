@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Bash|PowerShell",
         "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/read-guard.mjs\"" }]
       }
     ],

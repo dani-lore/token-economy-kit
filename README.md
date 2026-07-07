@@ -38,7 +38,7 @@ Run the hook test suite with `npm test`.
 
 | Component | File | Level | What it does |
 |---|---|---|---|
-| **read-guard** | `hooks/read-guard.mjs` | Enforcement | PreToolUse hook: denies Reads without `offset`/`limit` on text files > 600 lines or > 256 KB. The rejection message lists the 3 alternatives (search → targeted Read → scout subagent). Fail-open: any internal hook error lets the Read through — it never blocks work due to its own bug. |
+| **read-guard** | `hooks/read-guard.mjs` | Enforcement | PreToolUse hook: denies Reads without `offset`/`limit` on text files > 600 lines or > 256 KB, and the same-sized whole-file shell dumps (`cat`/`type`/`Get-Content`/`gc`) that would otherwise bypass the guard. Piped/redirected/bounded reads (`cat f \| grep`, `Get-Content f -TotalCount 50`) pass through. The rejection message lists the 3 alternatives (search → targeted Read → scout subagent). Fail-open: any internal hook error lets the call through — it never blocks work due to its own bug. |
 | **inject-policy** | `hooks/inject-policy.mjs` | Policy | SessionStart hook: injects 5 policy lines into every session's context. Users who install the plugin don't need to touch their `CLAUDE.md` (but can, see §5). |
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocol | On-demand skill: full decision tree (which tool for which question), scout dispatch template, examples of effective semantic queries, cases where direct Read IS the right choice. The detail lives in the skill precisely to avoid bloating the fixed context. |
 | **scout** | `agents/scout.md` | Delegation | Subagent on the **Haiku** model (~20-30× cheaper than top models): performs broad reconnaissance (3+ files, architectural overviews) in its *own* context and reports only conclusions with `path:line` references, max ~40 lines, never file dumps. Everything it reads dies with it. |
@@ -108,7 +108,7 @@ Then register the hooks in `~/.claude/settings.json` (adjust paths; on macOS/Lin
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\read-guard.mjs\"" }
         ]
