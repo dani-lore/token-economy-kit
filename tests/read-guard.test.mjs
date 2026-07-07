@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,22 @@ function runHook(payload) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
+  });
+  let decision = null;
+  const out = r.stdout.trim();
+  if (out) {
+    try { decision = JSON.parse(out).hookSpecificOutput?.permissionDecision; } catch { /* leave null */ }
+  }
+  return { stdout: out, code: r.status, decision };
+}
+
+// Same as runHook, but runs the hook subprocess with a given cwd — used to
+// assert where the telemetry log lands without touching the repo's own cwd.
+function runHookInDir(payload, cwd) {
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify(payload),
+    encoding: 'utf8',
+    cwd,
   });
   let decision = null;
   const out = r.stdout.trim();
@@ -165,4 +181,45 @@ test('shell command that is not a dump is allowed', () => {
   const big = makeFile(dir, 'grep-target.txt', 5000);
   const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `grep foo ${big}` } });
   assert.equal(decision, null);
+});
+
+// --- realized-savings telemetry (logged at deny time) ---
+
+test('a deny writes a telemetry record to .claude/token-economy/denied.jsonl', () => {
+  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-'));
+  try {
+    const big = makeFile(telDir, 'big.txt', 601);
+    const { decision } = runHookInDir({ tool_name: 'Read', tool_input: { file_path: big } }, telDir);
+    assert.equal(decision, 'deny');
+
+    const logPath = join(telDir, '.claude', 'token-economy', 'denied.jsonl');
+    const lines = readFileSync(logPath, 'utf8').trim().split('\n');
+    const record = JSON.parse(lines[lines.length - 1]);
+
+    assert.ok('t' in record);
+    assert.ok('tool' in record);
+    assert.ok('path' in record);
+    assert.ok('lines' in record);
+    assert.ok('bytes' in record);
+    assert.ok('saved' in record);
+    assert.equal(record.tool, 'Read');
+    assert.equal(record.lines, 601);
+    assert.ok(record.saved > 0);
+  } finally {
+    rmSync(telDir, { recursive: true, force: true });
+  }
+});
+
+test('deny still happens (fail-open) when the telemetry log dir cannot be created', () => {
+  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-blocked-'));
+  try {
+    // Pre-create a regular FILE at .claude so mkdirSync(.claude/token-economy) throws ENOTDIR.
+    writeFileSync(join(telDir, '.claude'), 'not a directory');
+    const big = makeFile(telDir, 'big.txt', 601);
+    const { decision, code } = runHookInDir({ tool_name: 'Read', tool_input: { file_path: big } }, telDir);
+    assert.equal(decision, 'deny');
+    assert.equal(code, 0);
+  } finally {
+    rmSync(telDir, { recursive: true, force: true });
+  }
 });

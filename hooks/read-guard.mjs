@@ -3,8 +3,8 @@
 // which would otherwise bypass the guard by piping a file into context.
 // Contract: allow = exit 0 + no stdout; deny = exit 0 + JSON on stdout.
 
-import { readFileSync, statSync, existsSync } from 'node:fs';
-import { extname } from 'node:path';
+import { readFileSync, statSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { extname, join } from 'node:path';
 
 const BINARY_EXTS = new Set([
   '.png','.jpg','.jpeg','.gif','.webp','.svg','.ico','.bmp',
@@ -37,21 +37,51 @@ function deny(reason) {
   }) + '\n');
 }
 
-// A deny reason if reading this whole file would bloat context, else null.
+const tokens = (b) => Math.ceil(b / 4);
+
+// Best-effort append to the realized-savings log. Never throws: a telemetry
+// failure must never block or break a deny (fail-open is sacred here).
+function logDeny(record) {
+  try {
+    const dir = join(process.cwd(), '.claude', 'token-economy');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'denied.jsonl'), JSON.stringify(record) + '\n');
+  } catch {
+    // no-op: logging is not allowed to affect the deny decision
+  }
+}
+
+// A deny descriptor if reading this whole file would bloat context, else null.
+// Shape: { reason, lines, bytes, saved }. `saved` is the estimated tokens
+// avoided vs. a guarded alternative (offset/limit read up to the limit).
 function oversizeReason(filePath, verb) {
   if (!filePath || !existsSync(filePath)) return null;
   if (BINARY_EXTS.has(extname(filePath).toLowerCase())) return null;
 
-  const { size } = statSync(filePath);
-  if (size > MAX_BYTES) {
-    return `${verb} blocked: "${filePath}" is ${(size / 1024).toFixed(0)} KB ` +
-      `(limit 256 KB for blind reads). ${ALTERNATIVES}`;
+  const { size: bytes } = statSync(filePath);
+  if (bytes > MAX_BYTES) {
+    // Don't read the content of an over-limit-by-size file just to report on it.
+    const saved = tokens(bytes) - tokens(MAX_BYTES);
+    return {
+      reason: `${verb} blocked: "${filePath}" is ${(bytes / 1024).toFixed(0)} KB ` +
+        `(limit 256 KB for blind reads). ${ALTERNATIVES}`,
+      lines: null,
+      bytes,
+      saved,
+    };
   }
   const content = readFileSync(filePath, 'utf8');
   const lines = (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1);
   if (lines > MAX_LINES) {
-    return `${verb} blocked: "${filePath}" has ${lines} lines ` +
-      `(limit ${MAX_LINES} for blind reads). ${ALTERNATIVES}`;
+    const guarded = content.split('\n').slice(0, MAX_LINES).join('\n');
+    const saved = tokens(bytes) - tokens(Buffer.byteLength(guarded, 'utf8'));
+    return {
+      reason: `${verb} blocked: "${filePath}" has ${lines} lines ` +
+        `(limit ${MAX_LINES} for blind reads). ${ALTERNATIVES}`,
+      lines,
+      bytes,
+      saved,
+    };
   }
   return null;
 }
@@ -97,16 +127,22 @@ try {
   if (payload.tool_name === 'Read') {
     // Allow if offset or limit is specified (targeted read)
     if (input.offset != null || input.limit != null) process.exit(0);
-    const reason = oversizeReason(input.file_path, 'Read');
-    if (reason) deny(reason);
+    const r = oversizeReason(input.file_path, 'Read');
+    if (r) {
+      logDeny({ t: Date.now(), tool: 'Read', path: input.file_path, lines: r.lines, bytes: r.bytes, saved: r.saved });
+      deny(r.reason);
+    }
     process.exit(0);
   }
 
   if (payload.tool_name === 'Bash' || payload.tool_name === 'PowerShell') {
     const target = dumpTarget(input.command);
     if (target) {
-      const reason = oversizeReason(target, 'Full-file dump');
-      if (reason) deny(reason);
+      const r = oversizeReason(target, 'Full-file dump');
+      if (r) {
+        logDeny({ t: Date.now(), tool: payload.tool_name, path: target, lines: r.lines, bytes: r.bytes, saved: r.saved });
+        deny(r.reason);
+      }
     }
     process.exit(0);
   }

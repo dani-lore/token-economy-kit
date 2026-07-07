@@ -26,6 +26,14 @@ Il principio operativo è: **localizza, non leggere**. La ricerca (semantica o p
 | **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocollo | Skill caricata on demand: decision tree completo (quale strumento per quale domanda), template di dispatch per scout, esempi di query semantiche efficaci, casi in cui la Read diretta È la scelta giusta. Il dettaglio sta nella skill proprio per non pesare sul contesto fisso. |
 | **scout** | `agents/scout.md` | Delega | Subagent su modello **Haiku** (~20-30× più economico dei modelli top): esegue ricognizioni ampie (3+ file, panoramiche architetturali) nel *proprio* contesto e riporta solo conclusioni con riferimenti `path:line`, max ~40 righe, mai dump di file. Le letture che fa muoiono con lui. |
 
+**Comandi** (slash command, su richiesta):
+
+- `/context-audit` — esegue il benchmark di input-bloat sul repo corrente e
+  riporta quanto risparmia il guard *qui* (rapporto di riduzione, file oltre soglia, peggiori casi).
+- `/economy-stats` — riporta il risparmio realmente registrato dal guard al momento del deny
+  (`.claude/token-economy/denied.jsonl`), a differenza del limite massimo statico di `/context-audit`.
+- `/economy-help` — riferimento rapido: principio, componenti, ordine delle operazioni, comandi.
+
 ### Perché questa architettura (presupposti delle scelte)
 
 - **Policy breve + skill di dettaglio**: una policy lunga nel contesto fisso viene rispettata meno ed è essa stessa spreco. Le 5 righe iniettate rimandano alla skill, che si carica solo quando serve esplorare.
