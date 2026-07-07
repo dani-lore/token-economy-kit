@@ -27,6 +27,7 @@ files or persist state.
 
 **Commands**
 - `/context-audit` — measure the input-token bloat the guard removes on this repo.
+- `/economy-stats` — realized savings actually logged at deny time (vs. the static ceiling).
 - `/economy-help` — this card.
 
 Tune the guard thresholds at the top of `hooks/read-guard.mjs` (`MAX_LINES`,

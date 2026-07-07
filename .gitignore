@@ -1,5 +1,8 @@
 node_modules/
 .DS_Store
 
+# Realized-savings telemetry logged by hooks/read-guard.mjs at deny time
+.claude/token-economy/
+
 # Auto-generated bench output (named results/<date>.md); curated reports kept by hand
 benchmarks/results/2[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md

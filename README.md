@@ -47,6 +47,8 @@ Run the hook test suite with `npm test`.
 
 - `/context-audit` — runs the input-bloat benchmark against the current repo and
   reports how much the guard saves *here* (cut ratio, files over limit, worst offenders).
+- `/economy-stats` — reports realized savings actually logged by the guard at deny
+  time (`.claude/token-economy/denied.jsonl`), vs. `/context-audit`'s static ceiling.
 - `/economy-help` — quick reference: principle, components, order of operations, commands.
 
 ### Why this architecture (design rationale)
