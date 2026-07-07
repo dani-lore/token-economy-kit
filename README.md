@@ -23,12 +23,15 @@ The saving is input-side (tokens spent *reading*) and scales with how much
 oversized material a repo carries. Measured deterministically by
 [`benchmarks/score.mjs`](benchmarks/score.mjs) — no API calls, runs in CI:
 
-| corpus | files over limit | input-token cut |
+| corpus | files over limit | input-token cut (ceiling) |
 |---|--:|--:|
 | clean app template (fastapi) | 2 / 213 | **6.1%** |
 | mid-size codebase (vscode-python) | 42 / 1,415 | **27.3%** |
 
-The cut is biggest where an agent would otherwise read generated/aggregate files
+This is the removable *ceiling* — it assumes blind full Reads of every
+oversized file — not the average saving actually realized in a session; see
+the "Honesty notes" in [benchmarks/README.md](benchmarks/README.md). The cut
+is biggest where an agent would otherwise read generated/aggregate files
 in full (`package-lock.json`: 303k → 7k tokens) and ~0% on already-lean repos —
 the harness reports that honestly rather than a single flattering figure. Method,
 limits, and reproduction: [benchmarks/README.md](benchmarks/README.md).

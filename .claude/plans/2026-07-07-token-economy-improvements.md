@@ -91,9 +91,9 @@ Docs only. The §1 table reads like realized savings; align it with `benchmarks/
 **Files:**
 - Modify: `README.md` §1 (table header + one clause), `README.it.md` §1
 
-- [ ] **Step 1 — Reword:** rename the column `input-token cut` → `input-token cut (ceiling)` and add one clause near the table: this is the removable ceiling (blind full Reads), not average realized savings — see `benchmarks/README.md`.
-- [ ] **Step 2 — Mirror in `README.it.md`** with the same wording (Italian).
-- [ ] **Step 3 — Commit** (`docs: label benchmark figure as a ceiling, not realized savings`).
+- [x] **Step 1 — Reword:** rename the column `input-token cut` → `input-token cut (ceiling)` and add one clause near the table: this is the removable ceiling (blind full Reads), not average realized savings — see `benchmarks/README.md`.
+- [x] **Step 2 — Mirror in `README.it.md`** with the same wording (Italian). N/A as scoped: `README.it.md` §1 has no "### Numbers" subsection/table at all (pre-existing translation gap, unrelated to this task) — nothing to relabel there. Flagged for follow-up, not fixed here to keep the diff minimal.
+- [x] **Step 3 — Commit** (`docs: label benchmark figure as a ceiling, not realized savings`).
 
 **Acceptance:** headline table and Honesty notes agree; no numbers changed, only their framing.
 
