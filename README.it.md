@@ -17,6 +17,27 @@ Due fatti guidano il design di questo kit:
 
 Il principio operativo è: **localizza, non leggere**. La ricerca (semantica o pattern) trova il punto; la Read è chirurgica (`offset`/`limit`) e serve solo per agire (Edit, verifica puntuale). Leggere non è vietato — è vietato leggere *alla cieca*.
 
+### Numeri
+
+Il risparmio è lato input (token spesi *in lettura*) e scala con quanto
+materiale sovradimensionato porta un repo. Misurato in modo deterministico da
+[`benchmarks/score.mjs`](benchmarks/score.mjs) — nessuna chiamata API, gira in CI:
+
+| corpus | file oltre il limite | taglio input-token (tetto massimo) |
+|---|--:|--:|
+| template app pulito (fastapi) | 2 / 213 | **6.1%** |
+| codebase media (vscode-python) | 42 / 1.415 | **27.3%** |
+
+Questo è il *tetto massimo* rimovibile — assume Read complete alla cieca di
+ogni file sovradimensionato — non il risparmio medio effettivamente realizzato
+in una sessione; vedi le "Honesty notes" in
+[benchmarks/README.md](benchmarks/README.md). Il taglio è massimo dove un agente
+altrimenti leggerebbe per intero file generati/aggregati
+(`package-lock.json`: 303k → 7k token) e ~0% su repo già snelli — l'harness lo
+riporta onestamente invece di un singolo numero lusinghiero. Metodo, limiti e
+riproduzione: [benchmarks/README.md](benchmarks/README.md).
+Esegui la suite di test dell'hook con `npm test`.
+
 ## 2. I 4 componenti del plugin
 
 | Componente | File | Livello | Cosa fa |
