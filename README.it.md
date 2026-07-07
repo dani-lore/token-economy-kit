@@ -127,7 +127,7 @@ Facoltativa ma coerente col sistema, sempre nel CLAUDE.md globale:
 
 > Se usi il plugin [superpowers](https://github.com/anthropics/claude-plugins) (o skill di processo equivalenti come `brainstorming` / `writing-plans`), puoi aggiungere anche una riga che le richiama esplicitamente per i task non triviali. **Non è un prerequisito**: questo kit non dipende da superpowers né da altre skill di processo.
 
-Se usi sia il plugin sia il CLAUDE.md, la policy compare due volte (innocuo, ~80 token). Per evitarlo: rimuovi l'hook SessionStart dal tuo `settings.json` o non aggiungere la sezione al CLAUDE.md.
+Se usi sia il plugin sia il CLAUDE.md, la policy compare due volte (innocuo, ~80 token). Per evitarlo: rimuovi l'hook SessionStart dal tuo `settings.json`, non aggiungere la sezione al CLAUDE.md, oppure imposta la variabile d'ambiente `TOKEN_ECONOMY_INJECT=0` per far uscire l'hook senza stampare nulla.
 
 ## 6. Strumenti consigliati: cosa fanno e come installarli
 

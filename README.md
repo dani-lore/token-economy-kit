@@ -150,7 +150,7 @@ Optional but consistent with the system, also in the global CLAUDE.md:
 
 > If you use the [superpowers](https://github.com/anthropics/claude-plugins) plugin (or equivalent process skills like `brainstorming` / `writing-plans`), you can also add a line that invokes them explicitly for non-trivial tasks. **This is not a prerequisite**: this kit does not depend on superpowers or any other process skill.
 
-If you use both the plugin and the CLAUDE.md, the policy appears twice (harmless, ~80 tokens). To avoid it: remove the SessionStart hook from your `settings.json` or don't add the section to CLAUDE.md.
+If you use both the plugin and the CLAUDE.md, the policy appears twice (harmless, ~80 tokens). To avoid it: remove the SessionStart hook from your `settings.json`, don't add the section to CLAUDE.md, or set the environment variable `TOKEN_ECONOMY_INJECT=0` to make the hook exit without printing anything.
 
 ## 6. Recommended tools: what they do and how to install them
 
