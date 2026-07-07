@@ -37,6 +37,7 @@ function deny(reason) {
   }) + '\n');
 }
 
+// ≈4 bytes per token (same estimate factor as benchmarks/score.mjs).
 const tokens = (b) => Math.ceil(b / 4);
 
 // Best-effort append to the realized-savings log. Never throws: a telemetry
@@ -73,6 +74,9 @@ function oversizeReason(filePath, verb) {
   const content = readFileSync(filePath, 'utf8');
   const lines = (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1);
   if (lines > MAX_LINES) {
+    // `saved` is a ceiling: tokens avoided vs. reading the whole file. It can be
+    // 0 when the overflow is a few very short lines (same 4-byte token bucket),
+    // never negative/NaN — guarded content is always a prefix of the file.
     const guarded = content.split('\n').slice(0, MAX_LINES).join('\n');
     const saved = tokens(bytes) - tokens(Buffer.byteLength(guarded, 'utf8'));
     return {
@@ -127,10 +131,10 @@ try {
   if (payload.tool_name === 'Read') {
     // Allow if offset or limit is specified (targeted read)
     if (input.offset != null || input.limit != null) process.exit(0);
-    const r = oversizeReason(input.file_path, 'Read');
-    if (r) {
-      logDeny({ t: Date.now(), tool: 'Read', path: input.file_path, lines: r.lines, bytes: r.bytes, saved: r.saved });
-      deny(r.reason);
+    const oversize = oversizeReason(input.file_path, 'Read');
+    if (oversize) {
+      logDeny({ t: Date.now(), tool: 'Read', path: input.file_path, lines: oversize.lines, bytes: oversize.bytes, saved: oversize.saved });
+      deny(oversize.reason);
     }
     process.exit(0);
   }
@@ -138,10 +142,10 @@ try {
   if (payload.tool_name === 'Bash' || payload.tool_name === 'PowerShell') {
     const target = dumpTarget(input.command);
     if (target) {
-      const r = oversizeReason(target, 'Full-file dump');
-      if (r) {
-        logDeny({ t: Date.now(), tool: payload.tool_name, path: target, lines: r.lines, bytes: r.bytes, saved: r.saved });
-        deny(r.reason);
+      const oversize = oversizeReason(target, 'Full-file dump');
+      if (oversize) {
+        logDeny({ t: Date.now(), tool: payload.tool_name, path: target, lines: oversize.lines, bytes: oversize.bytes, saved: oversize.saved });
+        deny(oversize.reason);
       }
     }
     process.exit(0);

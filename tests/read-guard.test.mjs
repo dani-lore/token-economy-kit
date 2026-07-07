@@ -13,10 +13,13 @@ import { fileURLToPath } from 'node:url';
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'read-guard.mjs');
 
 // Run the hook with a payload object, return { stdout, code, decision }.
+// cwd = the shared temp dir so deny-time telemetry (logDeny) lands there,
+// never in the repo root — keeps the whole suite hermetic.
 function runHook(payload) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
+    cwd: dir,
   });
   let decision = null;
   const out = r.stdout.trim();
