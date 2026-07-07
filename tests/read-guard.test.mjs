@@ -199,8 +199,14 @@ test('dense file under both line and byte limits is denied', () => {
   assert.match(stdout, /dense|generated/);
 });
 
-test('550-line file of short lines is allowed (not dense)', () => {
-  const p = makeFile(dir, 'short-lines.txt', 550);
+test('large-but-short-lined file clears DENSE_BYTES yet is allowed (only avg-line guard applies)', () => {
+  const p = join(dir, 'short-lines-big.txt');
+  // 595 lines * ~90 bytes ≈ 53 KB: total bytes CLEAR DENSE_BYTES (51200), so the
+  // size gate alone can't allow it — the only reason it isn't denied is the short
+  // average line (~90 < DENSE_AVG 400). Stays under 600 lines AND under 256 KB,
+  // so it reaches the dense check and must pass purely on avg-line-length.
+  const content = Array.from({ length: 595 }, (_, i) => `line ${i}`.padEnd(90, 'z')).join('\n');
+  writeFileSync(p, content);
   const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
   assert.equal(decision, null);
 });
