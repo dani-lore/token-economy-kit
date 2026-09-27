@@ -1,7 +1,7 @@
 {
   "name": "token-economy",
   "description": "Keeps Claude Code sessions lean on input tokens: blocks whole-file Reads over a token budget and shows an outline to aim a slice at, routes the Explore subagent to a cheaper model, injects an exploration policy at session start (and starts grepai watch in grepai projects), and ships the exploring-codebase skill plus the /context-audit, /economy-stats and /economy-help commands.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": { "name": "dani-lore", "url": "https://github.com/dani-lore" },
   "homepage": "https://github.com/dani-lore/token-economy-kit",
   "repository": "https://github.com/dani-lore/token-economy-kit",
