@@ -8,7 +8,7 @@ with no API calls.
 
 The `read-guard` hook is a pure function of a file's size: a Read without a
 `limit` of at most 600 lines is denied when the file is estimated over the token
-budget (`read_max_tokens`, default 10,000), forcing a targeted `offset`/`limit`
+budget (`read_budget`, default 10,000), forcing a targeted `offset`/`limit`
 Read instead. So the saving is not a behavioural guess — it is a counting
 exercise over a real file corpus:
 
@@ -23,7 +23,7 @@ exercise over a real file corpus:
 
 A blind Read is not unbounded: Claude Code's Read returns at most the first
 2,000 lines, and truncates output over a token cap (25,000 by default,
-`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`). Both arms apply those caps, so the
+`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`; the scorer uses the default). Both arms apply those caps, so the
 baseline is what a blind Read actually costs, not the size of the file on disk:
 
 | | lines | token cap |

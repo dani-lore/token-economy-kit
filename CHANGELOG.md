@@ -2,9 +2,21 @@
 
 ## 2.0.1 — 2026-09-27
 
+### Breaking
+
+- **Option `read_max_tokens` renamed `read_budget`** (env `CLAUDE_PLUGIN_OPTION_READ_BUDGET`). A value
+  set under the old name is ignored and the budget falls back to 10,000: set it again in `/config`.
+- **Legacy env alias `TOKEN_ECONOMY_INJECT` removed.** Use the `inject_policy` option.
+- The cost model uses the native Read cap default (25,000 tokens) and no longer reads
+  `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`.
+
+The plugin directory validator reads any `*TOKEN*` env var as a credential.
+
+### Changed
+
 - `/context-audit` and `/economy-stats` pre-approve only their own plugin script, not `Bash(node *)`,
   and no longer run inline shell when loaded: Claude runs the script with one Bash call.
-- Plugin icon added (`.claude-plugin/icon.png`).
+- Plugin icon added.
 - READMEs link to the grepai install instructions instead of piping a remote script into a shell.
 - Contributor guide moved to `.claude/CLAUDE.md`.
 

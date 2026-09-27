@@ -28,7 +28,7 @@ mkdirSync(nested, { recursive: true });
 function hookEnv(extra) {
   const env = { ...process.env, CLAUDE_PLUGIN_DATA: join(dir, 'plugin-data') };
   for (const k of Object.keys(env)) {
-    if (/^(CLAUDE_PLUGIN_OPTION_|TOKEN_ECONOMY_INJECT$|GREPAI_WATCH_AUTOSTART$|PATH$)/i.test(k)) delete env[k];
+    if (/^(CLAUDE_PLUGIN_OPTION_|GREPAI_WATCH_AUTOSTART$|PATH$)/i.test(k)) delete env[k];
   }
   return { ...env, PATH: '', ...extra };
 }
@@ -74,15 +74,14 @@ test('without grepai on PATH no watcher starts and no systemMessage is sent', ()
 });
 
 test('the read budget in the policy follows the option', () => {
-  const out = run({ source: 'startup', cwd: plain }, { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: '25000' });
+  const out = run({ source: 'startup', cwd: plain }, { CLAUDE_PLUGIN_OPTION_READ_BUDGET: '25000' });
   assert.match(context(out), /over ~25k tokens/);
 });
 
-test('policy injection turns off via the option or the legacy env', () => {
+test('policy injection turns off via the option', () => {
   for (const env of [
     { CLAUDE_PLUGIN_OPTION_INJECT_POLICY: 'false' },
     { CLAUDE_PLUGIN_OPTION_INJECT_POLICY: '0' },
-    { TOKEN_ECONOMY_INJECT: '0' },
   ]) {
     assert.equal(run({ source: 'startup', cwd: indexed }, env), null, JSON.stringify(env));
   }

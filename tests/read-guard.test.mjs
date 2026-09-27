@@ -27,7 +27,6 @@ function hookEnv(extra = {}) {
   for (const k of Object.keys(env)) {
     if (k.startsWith('CLAUDE_PLUGIN_OPTION_') && !(k in extra)) delete env[k];
   }
-  delete env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS;
   if (!('CLAUDE_PROJECT_DIR' in extra)) delete env.CLAUDE_PROJECT_DIR;
   return env;
 }
@@ -146,11 +145,11 @@ test('non-existent file and directory are allowed (fail-open)', () => {
   assert.equal(runHook(read(sub)).decision, null);
 });
 
-test('budget is overridable via CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', () => {
+test('budget is overridable via CLAUDE_PLUGIN_OPTION_READ_BUDGET', () => {
   const big = makeFile('override.txt', 1000); // ~25000 tokens
-  const env = { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: '30000' };
+  const env = { CLAUDE_PLUGIN_OPTION_READ_BUDGET: '30000' };
   assert.equal(runHook(read(big), { env }).decision, null);
-  const low = runHook(read(makeFile('override-low.txt', 100)), { env: { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: '1000' } });
+  const low = runHook(read(makeFile('override-low.txt', 100)), { env: { CLAUDE_PLUGIN_OPTION_READ_BUDGET: '1000' } });
   assert.equal(low.decision, 'deny');
   assert.match(low.stdout, /capped at 1000 tokens/);
 });
@@ -158,7 +157,7 @@ test('budget is overridable via CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', () => {
 test('invalid budget override falls back to the default', () => {
   const big = makeFile('override-bad.txt', 401);
   for (const v of ['abc', '0', '-5']) {
-    assert.equal(runHook(read(big), { env: { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: v } }).decision, 'deny');
+    assert.equal(runHook(read(big), { env: { CLAUDE_PLUGIN_OPTION_READ_BUDGET: v } }).decision, 'deny');
   }
 });
 

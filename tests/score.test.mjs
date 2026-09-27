@@ -20,7 +20,6 @@ test.after(() => rmSync(dir, { recursive: true, force: true }));
 function cleanEnv() {
   const env = { ...process.env, CLAUDE_PLUGIN_DATA: join(dir, 'plugin-data') };
   for (const k of Object.keys(env)) if (k.startsWith('CLAUDE_PLUGIN_OPTION_')) delete env[k];
-  delete env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS;
   return env;
 }
 

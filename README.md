@@ -61,12 +61,12 @@ Options are set in `/config`, under the plugin options:
 
 | Option | Default | Effect | Legacy env alias |
 |---|---|---|---|
-| `read_max_tokens` | `10000` (min `2000`) | Whole-file Reads estimated above this many tokens are blocked. | — |
-| `inject_policy` | `true` | Inject the exploration policy at session start. | `TOKEN_ECONOMY_INJECT=0` |
+| `read_budget` | `10000` (min `2000`) | Whole-file Reads estimated above this many tokens are blocked. | — |
+| `inject_policy` | `true` | Inject the exploration policy at session start. | — |
 | `grepai_autostart` | `true` | Start `grepai watch` in the background in projects with `.grepai/config.yaml`. | `GREPAI_WATCH_AUTOSTART=0` |
 | `explore_model` | `haiku` | Model for Explore subagents launched without one: `haiku`, `sonnet`, `opus`, `fable`, or `inherit` to keep the main model. | — |
 
-A toggle is off when either the option or its legacy variable is `0` or `false`.
+A toggle is off when the option (or, for `grepai_autostart`, its legacy variable) is `0` or `false`.
 
 With `inject_policy` off you can put the policy in your `CLAUDE.md` instead.
 This is the text the hook injects in a grepai project:
@@ -151,7 +151,7 @@ and you can delete the file at any time.
 
 - **Nothing happens, or hooks report `node` not found.** Install Node.js LTS and
   make sure `node --version` works in the shell Claude Code starts from.
-- **The guard is too strict.** Raise `read_max_tokens` in `/config`. Reads with
+- **The guard is too strict.** Raise `read_budget` in `/config`. Reads with
   `limit` up to 600 lines always pass.
 - **Everything happens twice** (two policies, two denies). You have both a manual
   setup (§11) and the plugin: remove the manual hooks from `settings.json`.
@@ -254,7 +254,7 @@ Windows: the same, with paths like
 `"node \"C:\\Users\\<user>\\.claude\\hooks\\token-economy\\read-guard.mjs\""`.
 
 Options become environment variables in the `env` block of `settings.json`:
-`CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS`, `CLAUDE_PLUGIN_OPTION_INJECT_POLICY`,
+`CLAUDE_PLUGIN_OPTION_READ_BUDGET`, `CLAUDE_PLUGIN_OPTION_INJECT_POLICY`,
 `CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART`, `CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL`.
 Without the plugin, deny telemetry goes to `~/.claude/token-economy/denied.jsonl`.
 

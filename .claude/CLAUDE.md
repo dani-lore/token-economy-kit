@@ -76,10 +76,12 @@ Holds for all three, and it is what the tests check:
 - Windows and POSIX are both CI targets: no hardcoded paths, no shell (`spawn` without `shell: true`),
   stdin stripped of the UTF-8 BOM PowerShell prepends.
 - Another plugin with a PreToolUse on `Agent` returning `updatedInput` (e.g. context-mode) wins over the router.
-- The plugin directory validator pairs any env read with any possible egress as a credential leak
-  (`MCP_FORWARDS_CREDENTIAL_ENV`). Egress includes inline command shell (`` !`…` ``) and any URL in a
-  shipped non-Markdown file, even the SVG `xmlns`. So: commands ask Claude to run their script with
-  one Bash call (narrow `allowed-tools` rule on that exact script), and the icon is a PNG.
+- The plugin directory validator pairs a credential-looking env read with any possible egress as a
+  credential leak (`MCP_FORWARDS_CREDENTIAL_ENV`). Egress is anything URL-like, even `author.url` in
+  `plugin.json` or an SVG `xmlns`, plus inline command shell (`` !`…` ``); so the fix is on the read
+  side: no env var or `userConfig` key with `TOKEN` in its name, no env lookup by computed name
+  (`tests/validator.test.mjs` checks both). Commands ask Claude to run their script with one Bash
+  call instead of inline shell, and no text file names the icon (`UNREAD_ASSET_REFERENCED`).
 - `benchmarks/results/<date>.md` is auto-generated and gitignored; curated reports with another name are tracked.
 
 ## Constraints
@@ -99,9 +101,8 @@ Holds for all three, and it is what the tests check:
 
 ## Environment variables
 
-- `CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS` — read-guard token budget (default 10000).
-- `CLAUDE_PLUGIN_OPTION_INJECT_POLICY` — `0`/`false` turns the policy off; legacy alias `TOKEN_ECONOMY_INJECT`.
+- `CLAUDE_PLUGIN_OPTION_READ_BUDGET` — read-guard token budget (default 10000).
+- `CLAUDE_PLUGIN_OPTION_INJECT_POLICY` — `0`/`false` turns the policy off.
 - `CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART` — `0`/`false` turns autostart off; legacy alias `GREPAI_WATCH_AUTOSTART`.
 - `CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL` — `haiku`/`sonnet`/`opus`/`fable`/`inherit` (default `haiku`).
-- `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` — native Read cap, read by `limits.mjs` (default 25000).
 - `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR` — provided by Claude Code to hooks.

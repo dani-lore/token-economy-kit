@@ -62,12 +62,12 @@ Le opzioni si impostano in `/config`, tra le opzioni del plugin:
 
 | Opzione | Default | Effetto | Alias env legacy |
 |---|---|---|---|
-| `read_max_tokens` | `10000` (min `2000`) | Le Read integrali stimate oltre questo numero di token vengono bloccate. | — |
-| `inject_policy` | `true` | Inietta la policy di esplorazione a inizio sessione. | `TOKEN_ECONOMY_INJECT=0` |
+| `read_budget` | `10000` (min `2000`) | Le Read integrali stimate oltre questo numero di token vengono bloccate. | — |
+| `inject_policy` | `true` | Inietta la policy di esplorazione a inizio sessione. | — |
 | `grepai_autostart` | `true` | Avvia `grepai watch` in background nei progetti con `.grepai/config.yaml`. | `GREPAI_WATCH_AUTOSTART=0` |
 | `explore_model` | `haiku` | Modello dei subagent Explore lanciati senza modello: `haiku`, `sonnet`, `opus`, `fable`, oppure `inherit` per tenere il modello principale. | — |
 
-Un interruttore è spento quando l'opzione oppure la sua variabile legacy vale `0` o `false`.
+Un interruttore è spento quando l'opzione (o, per `grepai_autostart`, la sua variabile legacy) vale `0` o `false`.
 
 Con `inject_policy` spento puoi mettere la policy nel tuo `CLAUDE.md`. Questo è
 il testo che l'hook inietta in un progetto grepai:
@@ -154,7 +154,7 @@ cancellata quando disinstalli il plugin, e il file si può eliminare in qualsias
 
 - **Non succede nulla, o gli hook segnalano `node` non trovato.** Installa Node.js
   LTS e verifica che `node --version` funzioni nella shell da cui parte Claude Code.
-- **Il guard è troppo severo.** Alza `read_max_tokens` in `/config`. Le Read con
+- **Il guard è troppo severo.** Alza `read_budget` in `/config`. Le Read con
   `limit` fino a 600 righe passano sempre.
 - **Tutto succede due volte** (due policy, due rifiuti). Hai sia il setup manuale
   (§11) sia il plugin: togli gli hook manuali da `settings.json`.
@@ -258,7 +258,7 @@ Windows: lo stesso, con path come
 `"node \"C:\\Users\\<user>\\.claude\\hooks\\token-economy\\read-guard.mjs\""`.
 
 Le opzioni diventano variabili d'ambiente nel blocco `env` di `settings.json`:
-`CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS`, `CLAUDE_PLUGIN_OPTION_INJECT_POLICY`,
+`CLAUDE_PLUGIN_OPTION_READ_BUDGET`, `CLAUDE_PLUGIN_OPTION_INJECT_POLICY`,
 `CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART`, `CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL`.
 Senza il plugin la telemetria dei rifiuti va in `~/.claude/token-economy/denied.jsonl`.
 

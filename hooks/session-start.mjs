@@ -9,7 +9,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import { READ_BUDGET, SLICE_MAX_LINES } from './limits.mjs';
 import { readPayload } from './stdin.mjs';
 
-// A toggle is off when the plugin option or its legacy env alias is 0/false.
+// A toggle is off when any of the given env values is 0/false.
 // Callers pass env values, not names: the directory validator holds dynamic env reads.
 function enabled(...values) {
   return !values.some((v) => v != null && /^(0|false)$/i.test(v.trim()));
@@ -57,7 +57,7 @@ try {
   const root = grepaiRoot(payload?.cwd || process.cwd());
   const out = {};
 
-  if (enabled(process.env.CLAUDE_PLUGIN_OPTION_INJECT_POLICY, process.env.TOKEN_ECONOMY_INJECT)) {
+  if (enabled(process.env.CLAUDE_PLUGIN_OPTION_INJECT_POLICY)) {
     out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: policy(root != null) };
   }
   const watchable = ['startup', 'resume'].includes(payload?.source);

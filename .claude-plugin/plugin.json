@@ -8,7 +8,7 @@
   "license": "MIT",
   "keywords": ["claude-code", "tokens", "context", "hooks", "read-guard", "explore", "grepai"],
   "userConfig": {
-    "read_max_tokens": {
+    "read_budget": {
       "type": "number",
       "title": "Read budget (tokens)",
       "description": "Whole-file Reads estimated above this many tokens are blocked. Reads with limit of at most 600 lines always pass.",

@@ -34,7 +34,7 @@ Never Read a file to find out whether it is the right one: search first.
   always passes the read-guard hook.
 - Short files where the whole content is the point (configs, manifests, small
   modules). A whole-file Read estimated over the plugin's token budget (default
-  10,000 tokens, option `read_max_tokens`) is denied, and the deny lists an
+  10,000 tokens, option `read_budget`) is denied, and the deny lists an
   outline with line numbers to aim the slice at.
 
 ## Delegating to Explore

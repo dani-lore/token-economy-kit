@@ -28,8 +28,8 @@ taken to act.
 - `/economy-help` — this card.
 
 **Options** (`/config`, plugin options)
-- `read_max_tokens` — the Read budget in tokens (default 10000, min 2000).
-- `inject_policy` — policy at session start (default on; legacy env `TOKEN_ECONOMY_INJECT=0`).
+- `read_budget` — the Read budget in tokens (default 10000, min 2000).
+- `inject_policy` — policy at session start (default on).
 - `grepai_autostart` — start `grepai watch` (default on; legacy env `GREPAI_WATCH_AUTOSTART=0`).
   The daemon keeps running after the session; stop it with `grepai watch --stop`.
 - `explore_model` — `haiku`, `sonnet`, `opus`, `fable`, or `inherit` to keep the main model.
