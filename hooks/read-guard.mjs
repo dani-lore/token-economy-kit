@@ -7,6 +7,7 @@ import { extname, join } from 'node:path';
 import {
   READ_MAX_TOKENS, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost,
 } from './limits.mjs';
+import { readPayload } from './stdin.mjs';
 
 // Content is read only as a prefix of this size (line count, `saved`).
 const PREFIX_BYTES = 2 * 1024 * 1024;
@@ -95,27 +96,8 @@ function overBudget(filePath) {
   return { reason, lines, bytes, saved };
 }
 
-// Read all stdin via event-based approach (works on Windows PowerShell pipes)
-function readStdin() {
-  return new Promise((resolve) => {
-    const chunks = [];
-    process.stdin.on('data', (chunk) => chunks.push(chunk));
-    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    process.stdin.on('error', () => resolve(''));
-    // If stdin is already closed/empty (TTY), resolve immediately after tick
-    if (process.stdin.readableEnded) resolve('');
-  });
-}
-
 try {
-  const raw = await readStdin();
-
-  // Strip UTF-8 BOM if present (PowerShell Out-File adds it)
-  const stripped = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
-
-  let payload;
-  try { payload = JSON.parse(stripped); } catch { process.exit(0); }
-
+  const payload = await readPayload();
   if (payload?.tool_name !== 'Read') process.exit(0);
   const input = payload.tool_input ?? {};
   if (input.limit != null && Number(input.limit) <= SLICE_MAX_LINES) process.exit(0);

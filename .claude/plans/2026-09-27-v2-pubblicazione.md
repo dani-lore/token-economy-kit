@@ -13,7 +13,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi § outline; test con un `.js` (dichiarazioni a righe note) e un `.md` (heading).
 - [ ] **3. Telemetria fuori dai repo utente.** File: `hooks/read-guard.mjs`, `.gitignore` (via la riga `.claude/token-economy/`), `tests/read-guard.test.mjs`.
   Accettazione: vedi § telemetria; nessun file scritto nella cwd; deny intatto con directory di log non creabile.
-- [ ] **4. Explore instradato su modello economico.** File: `hooks/explore-router.mjs` (nuovo), `hooks/hooks.json`, `tests/explore-router.test.mjs`.
+- [x] **4. Explore instradato su modello economico.** File: `hooks/explore-router.mjs` (nuovo), `hooks/hooks.json`, `tests/explore-router.test.mjs`.
   Accettazione: vedi § explore-router; test: Explore senza `model` → `haiku` + contratto; `model` esplicito → nessun output; altro `subagent_type` → nessun output; opzione `sonnet` rispettata; `inherit` → nessun output; stdin malformato → exit 0 silenzioso. Verifica headless obbligatoria (§ verifica Explore) prima del task 5.
 - [ ] **5. Via scout, skill riscritta.** File: `agents/scout.md` (eliminato), `skills/exploring-codebase/SKILL.md`, `skills/exploring-codebase/references/mcp-pruning.md`.
   Accettazione: vedi § skill. Se la verifica del task 4 fallisce: scout resta, con `disallowedTools: Write, Edit, NotebookEdit, Agent` al posto di `tools:`, `omitClaudeMd: true`, `maxTurns: 20`, esempio neutro.
@@ -43,6 +43,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
 - Explore: da v2.1.198 eredita il modello principale (cap a Opus sulla Claude API), è read-only e salta i CLAUDE.md; lo sovrascrive solo un agent utente/progetto chiamato `Explore` (quelli di plugin hanno namespace). Tool `Agent` (vecchie versioni `Task`), input `subagent_type`, `prompt`, `model` (`sonnet`/`opus`/`haiku`/`fable`).
 - grepai MCP: `grepai_search` (`query`, `limit`=10, `compact`=false), `grepai_trace_callers`, `grepai_trace_callees`, `grepai_trace_graph` (`depth`=2), `grepai_index_status`, `grepai_list_workspaces`, `grepai_list_projects`; nessun tool MCP `refs` (esiste la CLI `grepai refs readers|writers|graph`). Daemon: `grepai watch --background|--status|--stop`; marker di init `.grepai/config.yaml`.
 - Misurato qui: ~120 ms per spawn del read-guard su Windows. Cache installata ferma a 1.0.0 (versione mai incrementata): non contiene `commands/` né `grepai-watch.mjs`.
+- Verifica Explore (2026-09-27, 2.1.283): con il solo router registrato l'input `Agent` senza `model` produce messaggi del subagent su `claude-haiku-4-5`, prompt con il contratto. Con context-mode 1.0.162 attivo il routing non avviene: anche il suo PreToolUse riscrive ogni `Agent` con `updatedInput` e vince il suo, senza `model` né contratto.
 
 ## Specifiche
 
