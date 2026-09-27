@@ -1,74 +1,75 @@
 ---
 name: exploring-codebase
-description: Token-efficient codebase exploration protocol. Use when exploring a codebase, understanding architecture, finding where something is defined or how a feature works, before any broad Read of source files. Triggers: "dove si trova", "come funziona X nel codice", "esplora la codebase", "capire l'architettura", "find where", "how does X work".
+description: Token-efficient codebase exploration protocol. Use when exploring a codebase, understanding architecture, finding where something is defined or how a feature works, before any broad Read of source files. Triggers: "where is X defined", "how does X work", "find where", "explore the codebase", "understand the architecture", "dove si trova", "come funziona X nel codice", "esplora la codebase".
 ---
 
-# Exploring Codebase — Operational Protocol
+# Exploring a codebase
 
-## Decision Tree
+Every tool result stays in context for the rest of the session, so fetch the
+smallest thing that answers the question.
 
-**Pointed question ("where is X defined?")**
-→ 1 `grepai_search` query (MCP grepai, if available), fallback `Grep` with exact pattern.
-→ NEVER exploratory Read before you know the file.
+## Question → tool
 
-**Function relationships (who calls / what does it call)**
-→ `grepai_trace_callers` / `grepai_trace_callees`
+Pick by capability; the grepai names are examples of what a semantic index
+offers, use them when its MCP server is connected.
 
-**Property access patterns (who reads / writes a prop)**
-→ `grepai_refs_readers` / `grepai_refs_writers`
+| Question | Tool |
+|---|---|
+| Where is X defined / handled? (intent, not exact text) | Semantic search, e.g. `grepai_search` with `compact: true` to get locations only |
+| Where does this exact string / identifier appear? | `Grep` (`output_mode: "files_with_matches"` or `head_limit` first) |
+| Which files match a name pattern? | `Glob` |
+| Who calls this function / what does it call? | Call graph, e.g. `grepai_trace_callers`, `grepai_trace_callees`, `grepai_trace_graph` (`depth` 2 by default) |
+| Who reads / writes this property? | `Grep` on the name; the grepai CLI has `grepai refs readers` / `grepai refs writers` |
+| What does this located section do? | `Read` with `offset`/`limit` around the hit |
+| Wide question that needs many files read | Delegate to the Explore subagent (below) |
+| Long command output (tests, builds, logs) | Filter at the source: `grep`, `head`, quiet/reporter flags; a sandboxing tool such as context-mode if installed |
+| External library docs | A docs server such as context7 if installed, else the official docs page |
 
-**Architectural overview OR search touching 3+ files**
-→ Dispatch subagent `scout` (model: haiku). NEVER do this in the main session.
-→ See dispatch template below.
+Never Read a file to find out whether it is the right one: search first.
 
-**File already located, needs to be edited**
-→ Targeted `Read` with `offset`/`limit` on the relevant section.
-→ Full Read is OK only if file < 300 lines.
+## When a direct Read is right
 
-**Command output > 20 lines (tests, build, logs)**
-→ `ctx_batch_execute` (context-mode MCP) if installed.
-→ Without context-mode: filter at the source — `head`, `grep`, `--quiet`/`--reporter=dot` flags. Never dump raw output into context.
+- The file is already located and you are about to edit it (Read before Edit).
+- The part you need fits a slice: `offset`/`limit` with `limit` up to 600 lines
+  always passes the read-guard hook.
+- Short files where the whole content is the point (configs, manifests, small
+  modules). A whole-file Read estimated over the plugin's token budget (default
+  10,000 tokens, option `read_max_tokens`) is denied, and the deny lists an
+  outline with line numbers to aim the slice at.
 
-**External library docs**
-→ context7 if installed: `resolve-library-id` → `query-docs`.
-→ Without context7: WebFetch the official docs page directly. WebSearch only as last resort.
+## Delegating to Explore
 
----
+A subagent has a fixed start-up cost (its own system prompt and tool
+definitions) and its report still lands in this context. Delegate when the
+volume to read is far larger than that: architecture questions, tracing a
+feature across many files, surveys of a whole directory. Small lookups are
+cheaper done directly with the table above.
 
-## Scout Dispatch Template
+The plugin routes an Explore call without a `model` to a cheaper model (option
+`explore_model`, default `haiku`). Another plugin that rewrites Agent calls
+(e.g. context-mode) can override that routing; passing `model: "haiku"`
+explicitly always works.
+
+Prompt template:
 
 ```
-Subagent type: scout (fallback: general-purpose with model haiku)
-Prompt:
-  Find [specific thing] in this codebase.
-  Rules:
-  - Report conclusions with path:line references.
-  - Max 40 lines total response.
-  - Answer the specific question only.
-  - Do NOT paste file contents.
-  - Do NOT list every file you visited.
-  - Do NOT summarize unrelated code.
+Find <specific thing> in this codebase.
+Answer only that question, in at most 40 lines.
+Report conclusions with path:line references.
+Do not paste file contents or list every file you opened.
 ```
 
----
+## Semantic queries
 
-## Effective grepai Queries
+Describe the intent in plain words, not a keyword:
 
-Use natural language for **intent**, not keywords.
+| Good | Weak |
+|---|---|
+| `where are user sessions invalidated after a password change` | `session` |
+| `how are retries scheduled when an HTTP request times out` | `retry` |
+| `where is the configuration file parsed at startup` | `config` |
 
-| Good | Bad |
-|------|-----|
-| `where is the theme toggle state persisted` | `density` |
-| `how does the settings panel open from the view header` | `inspector open` |
+If results look stale or miss code you know exists, check `grepai_index_status`
+before trusting them.
 
-If results seem stale: run `grepai_index_status` first — if index is outdated, re-index before trusting results.
-
----
-
-## When Direct Read IS Optimal
-
-- File < 300 lines and already located by a prior search.
-- File you are about to edit (Read before Edit is required).
-- Short config files (JSON, YAML, env templates) where full content is the point.
-
-**Rule: locate first, read surgical.** Not "never read."
+For MCP hygiene (which servers load where), see `references/mcp-pruning.md`.
