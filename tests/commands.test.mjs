@@ -30,9 +30,15 @@ for (const f of files) {
   const injected = [...body.matchAll(/!`([^`]+)`/g)].map((m) => m[1]);
   if (!injected.length) continue;
 
-  test(`${f} allows the node commands it injects`, () => {
-    assert.match(fm, /^allowed-tools:.*Bash\(node \*\)/m);
-    for (const cmd of injected) assert.match(cmd, /^node /, cmd);
+  test(`${f} allows exactly the plugin scripts it injects`, () => {
+    // Narrow grants only: the directory validator holds a broad Bash(node *).
+    const rules = [...fm.matchAll(/Bash\(([^)]+)\)/g)].map((m) => m[1]);
+    assert.ok(rules.length, 'no Bash(...) rule in allowed-tools');
+    for (const rule of rules) assert.match(rule, /^node "\$\{CLAUDE_PLUGIN_ROOT\}\//, rule);
+    for (const cmd of injected) {
+      const ok = rules.some((r) => (r.endsWith(' *') ? cmd.startsWith(r.slice(0, -1)) : cmd === r));
+      assert.ok(ok, `not covered by allowed-tools: ${cmd}`);
+    }
   });
 
   test(`${f} runs plugin files that exist`, () => {

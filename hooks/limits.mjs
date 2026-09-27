@@ -16,7 +16,7 @@ export const READ_MAX_TOKENS = envNumber('CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS',
 export const SLICE_MAX_LINES = 600;
 // What the native Read returns without offset/limit: first 2000 lines, capped in tokens.
 export const NATIVE_READ_LINES = 2000;
-export const NATIVE_READ_TOKENS = envNumber('CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS', 25000);
+export const NATIVE_READ_CAP = envNumber('CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS', 25000);
 
 // Extensions the guard never judges: binaries/media, handled natively by Read.
 export const SKIP_EXTS = new Set([
@@ -35,7 +35,7 @@ function readCost(text, lines) {
     end = text.indexOf('\n', end + 1);
     if (end === -1) { end = text.length; break; }
   }
-  return Math.min(tokens(Buffer.byteLength(text.slice(0, end), 'utf8')), NATIVE_READ_TOKENS);
+  return Math.min(tokens(Buffer.byteLength(text.slice(0, end), 'utf8')), NATIVE_READ_CAP);
 }
 
 // Cost of a Read without offset/limit.

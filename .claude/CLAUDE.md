@@ -88,8 +88,10 @@ Holds for all three, and it is what the tests check:
 - Every new hook behavior gets its test in `tests/`.
 - Everything in English (code, docs, commits), except `README.it.md`, which is kept at content parity
   with `README.md`.
-- Work plans and specs stay local: `.claude/plans/`, `.claude/specs/` and the rest of `.claude/` are
-  gitignored. Never commit them.
+- Work plans and specs stay local: everything under `.claude/` except this file is gitignored.
+  Never commit plans, specs or settings.
+- This guide lives in `.claude/CLAUDE.md`, not at the root: the plugin directory validator flags a
+  root `CLAUDE.md` (it is not loaded for plugin users).
 
 ## Environment variables
 

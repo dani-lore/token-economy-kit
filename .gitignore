@@ -2,8 +2,10 @@ node_modules/
 .DS_Store
 
 # Local-only working material, never published: plans, specs, ADRs,
-# session settings and anything else Claude Code keeps under .claude/
-.claude/
+# session settings and anything else Claude Code keeps under .claude/.
+# Only the contributor guide is tracked (a root CLAUDE.md is flagged by the directory validator).
+.claude/*
+!.claude/CLAUDE.md
 plans/
 specs/
 docs/plans/

@@ -11,7 +11,7 @@ import { join, dirname, extname, relative, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
-  READ_MAX_TOKENS, SLICE_MAX_LINES, NATIVE_READ_LINES, NATIVE_READ_TOKENS, SKIP_EXTS,
+  READ_MAX_TOKENS, SLICE_MAX_LINES, NATIVE_READ_LINES, NATIVE_READ_CAP, SKIP_EXTS,
   tokens, blindReadCost, sliceCost,
 } from '../hooks/limits.mjs';
 
@@ -89,7 +89,7 @@ function report(res, date) {
   }
   lines.push(
     `Model: a blind Read returns the first ${NATIVE_READ_LINES} lines, capped at ` +
-    `${NATIVE_READ_TOKENS.toLocaleString('en-US')} tokens (native Read limits). Files estimated over ` +
+    `${NATIVE_READ_CAP.toLocaleString('en-US')} tokens (native Read limits). Files estimated over ` +
     `${READ_MAX_TOKENS.toLocaleString('en-US')} tokens are denied and cost one ${SLICE_MAX_LINES}-line ` +
     'slice under the same cap instead. Token estimate: ceil(bytes/4).',
   );

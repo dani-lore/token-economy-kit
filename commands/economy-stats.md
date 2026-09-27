@@ -1,6 +1,6 @@
 ---
 description: Report realized read-guard savings logged at deny time
-allowed-tools: Bash(node *)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/economy-stats.mjs" *)
 disable-model-invocation: true
 ---
 

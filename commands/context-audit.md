@@ -1,6 +1,6 @@
 ---
 description: Audit how much input-token bloat the read-guard removes on this repo
-allowed-tools: Bash(node *)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/benchmarks/score.mjs")
 disable-model-invocation: true
 ---
 

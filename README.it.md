@@ -180,17 +180,13 @@ alla fonte; con loro, ognuno toglie un tipo diverso di spreco.
 **grepai.** Richiede [Ollama](https://ollama.com) con `nomic-embed-text` (locale)
 oppure una chiave OpenAI per gli embedding.
 
-```powershell
-# Windows
-irm https://raw.githubusercontent.com/yoanbernabeu/grepai/main/install.ps1 | iex
-```
-
 ```bash
 # macOS
 brew install yoanbernabeu/tap/grepai
-# Linux/macOS
-curl -sSL https://raw.githubusercontent.com/yoanbernabeu/grepai/main/install.sh | sh
 ```
+
+Windows e Linux: segui le [istruzioni di installazione di grepai](https://github.com/yoanbernabeu/grepai#installation)
+oppure scarica un binario dalle [release](https://github.com/yoanbernabeu/grepai/releases).
 
 Per ogni progetto:
 
@@ -290,5 +286,5 @@ node benchmarks/score.mjs --dir <path>  # benchmark di una directory qualsiasi, 
 Per provare modifiche locali: `/plugin marketplace add <path-del-clone>`,
 `/plugin install token-economy@token-economy`, poi una nuova sessione; le
 modifiche a hook, skill o comandi non toccano mai una sessione già in corso. Note
-per chi contribuisce: [CLAUDE.md](CLAUDE.md). Modifiche: [CHANGELOG.md](CHANGELOG.md).
+per chi contribuisce: [.claude/CLAUDE.md](.claude/CLAUDE.md). Modifiche: [CHANGELOG.md](CHANGELOG.md).
 Licenza: [MIT](LICENSE).
