@@ -5,37 +5,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'read-guard.mjs');
 
-// Run the hook with a payload object, return { stdout, code, decision }.
-// cwd = the shared temp dir so deny-time telemetry (logDeny) lands there,
-// never in the repo root — keeps the whole suite hermetic.
-function runHook(payload) {
-  const r = spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: dir,
-  });
-  let decision = null;
-  const out = r.stdout.trim();
-  if (out) {
-    try { decision = JSON.parse(out).hookSpecificOutput?.permissionDecision; } catch { /* leave null */ }
+const dir = mkdtempSync(join(tmpdir(), 'read-guard-'));
+test.after(() => rmSync(dir, { recursive: true, force: true }));
+
+// Hook env: no plugin options leaking in from the developer's shell.
+function hookEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  for (const k of Object.keys(env)) {
+    if (k.startsWith('CLAUDE_PLUGIN_OPTION_') && !(k in extra)) delete env[k];
   }
-  return { stdout: out, code: r.status, decision };
+  delete env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS;
+  return env;
 }
 
-// Same as runHook, but runs the hook subprocess with a given cwd — used to
-// assert where the telemetry log lands without touching the repo's own cwd.
-function runHookInDir(payload, cwd) {
+// Run the hook with a payload object, return { stdout, code, decision }.
+// cwd defaults to the shared temp dir so deny-time telemetry lands there,
+// never in the repo root — keeps the whole suite hermetic.
+function runHook(payload, { cwd = dir, env = {} } = {}) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
     cwd,
+    env: hookEnv(env),
   });
   let decision = null;
   const out = r.stdout.trim();
@@ -45,170 +43,126 @@ function runHookInDir(payload, cwd) {
   return { stdout: out, code: r.status, decision };
 }
 
-// Make a temp file with N lines; returns its path. Caller cleans the dir.
-function makeFile(dir, name, lines) {
-  const p = join(dir, name);
-  writeFileSync(p, Array.from({ length: lines }, (_, i) => `line ${i}`).join('\n'));
+// A temp file of `lines` lines, each `width` bytes including the newline.
+// Default width 100 → 400 lines = 10000 tokens, the default budget.
+function makeFile(name, lines, width = 100, at = dir) {
+  const p = join(at, name);
+  writeFileSync(p, Array.from({ length: lines }, (_, i) => `line ${i} `.padEnd(width - 1, 'x')).join('\n') + '\n');
   return p;
 }
 
-const dir = mkdtempSync(join(tmpdir(), 'read-guard-'));
-test.after(() => rmSync(dir, { recursive: true, force: true }));
+const read = (file_path, extra = {}) => ({ tool_name: 'Read', tool_input: { file_path, ...extra } });
 
-test('non-Read tool passes through', () => {
-  const { stdout, code } = runHook({ tool_name: 'Edit', tool_input: { file_path: 'x' } });
-  assert.equal(stdout, '');
-  assert.equal(code, 0);
+test('non-Read tool passes through, shell dumps included', () => {
+  const big = makeFile('cat-big.txt', 3000);
+  for (const payload of [
+    { tool_name: 'Edit', tool_input: { file_path: big } },
+    { tool_name: 'Bash', tool_input: { command: `cat ${big}` } },
+  ]) {
+    const { stdout, code } = runHook(payload);
+    assert.equal(stdout, '');
+    assert.equal(code, 0);
+  }
 });
 
 test('malformed stdin is allowed (fail-open)', () => {
-  const r = spawnSync(process.execPath, [HOOK], { input: 'not json', encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [HOOK], { input: 'not json', encoding: 'utf8', cwd: dir, env: hookEnv() });
   assert.equal(r.stdout.trim(), '');
   assert.equal(r.status, 0);
 });
 
-test('Read with offset is allowed regardless of size', () => {
-  const big = makeFile(dir, 'big-offset.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: big, offset: 10 } });
-  assert.equal(decision, null);
-});
-
-test('Read with limit is allowed regardless of size', () => {
-  const big = makeFile(dir, 'big-limit.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: big, limit: 50 } });
-  assert.equal(decision, null);
+test('UTF-8 BOM prefixed payload still parses', () => {
+  const big = makeFile('bom.txt', 3000);
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: '﻿' + JSON.stringify(read(big)),
+    encoding: 'utf8',
+    cwd: dir,
+    env: hookEnv(),
+  });
+  assert.match(r.stdout, /"deny"/);
 });
 
 test('small file blind Read is allowed', () => {
-  const small = makeFile(dir, 'small.txt', 100);
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: small } });
-  assert.equal(decision, null);
+  assert.equal(runHook(read(makeFile('small.txt', 100))).decision, null);
 });
 
-test('file exactly at the 600-line limit is allowed', () => {
-  const edge = makeFile(dir, 'edge.txt', 600);
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: edge } });
-  assert.equal(decision, null);
+test('900 short lines are allowed: the budget is tokens, not lines', () => {
+  assert.equal(runHook(read(makeFile('short-lines.txt', 900, 10))).decision, null);
 });
 
-test('file over 600 lines is denied', () => {
-  const big = makeFile(dir, 'big.txt', 601);
-  const { decision, stdout } = runHook({ tool_name: 'Read', tool_input: { file_path: big } });
+test('file exactly at the token budget is allowed', () => {
+  assert.equal(runHook(read(makeFile('edge.txt', 400))).decision, null);
+});
+
+test('file over the token budget is denied with tokens and lines', () => {
+  const { decision, stdout, code } = runHook(read(makeFile('big.txt', 401)));
   assert.equal(decision, 'deny');
-  assert.match(stdout, /601 lines/);
-  assert.match(stdout, /offset/);
+  assert.equal(code, 0);
+  assert.match(stdout, /~10025 tokens \(401 lines\)/);
+  assert.match(stdout, /capped at 10000 tokens/);
+  assert.match(stdout, /offset\/limit/);
 });
 
-test('file over 256 KB is denied on size before line count', () => {
-  const p = join(dir, 'huge.txt');
-  writeFileSync(p, 'x'.repeat(300 * 1024)); // 300 KB, single line
-  const { decision, stdout } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
-  assert.equal(decision, 'deny');
-  assert.match(stdout, /KB/);
+test('few very long lines are denied on tokens', () => {
+  const p = join(dir, 'dense.min.js');
+  writeFileSync(p, Array.from({ length: 50 }, () => 'y'.repeat(2000)).join('\n'));
+  assert.equal(runHook(read(p)).decision, 'deny');
+});
+
+test('limit 600 is allowed regardless of size', () => {
+  const big = makeFile('limit-600.txt', 5000);
+  assert.equal(runHook(read(big, { limit: 600 })).decision, null);
+  assert.equal(runHook(read(big, { offset: 10, limit: 50 })).decision, null);
+});
+
+test('limit 601 on a large file is denied', () => {
+  assert.equal(runHook(read(makeFile('limit-601.txt', 5000), { limit: 601 })).decision, 'deny');
+});
+
+test('offset without limit on a large file is denied', () => {
+  assert.equal(runHook(read(makeFile('offset.txt', 5000), { offset: 10 })).decision, 'deny');
+});
+
+test('large .lock file is denied (no longer skipped)', () => {
+  assert.equal(runHook(read(makeFile('package.lock', 3000))).decision, 'deny');
 });
 
 test('binary extension is allowed even when large', () => {
   const p = join(dir, 'image.png');
   writeFileSync(p, 'x'.repeat(300 * 1024));
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
-  assert.equal(decision, null);
+  assert.equal(runHook(read(p)).decision, null);
 });
 
-test('non-existent file is allowed (nothing to guard)', () => {
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: join(dir, 'nope.txt') } });
-  assert.equal(decision, null);
+test('non-existent file and directory are allowed (fail-open)', () => {
+  assert.equal(runHook(read(join(dir, 'nope.txt'))).decision, null);
+  const sub = join(dir, 'a-directory');
+  mkdirSync(sub, { recursive: true });
+  assert.equal(runHook(read(sub)).decision, null);
 });
 
-test('UTF-8 BOM prefixed payload still parses', () => {
-  const small = makeFile(dir, 'bom.txt', 100);
-  const r = spawnSync(process.execPath, [HOOK], {
-    input: '﻿' + JSON.stringify({ tool_name: 'Read', tool_input: { file_path: small } }),
-    encoding: 'utf8',
-  });
-  assert.equal(r.stdout.trim(), '');
+test('budget is overridable via CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', () => {
+  const big = makeFile('override.txt', 1000); // ~25000 tokens
+  const env = { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: '30000' };
+  assert.equal(runHook(read(big), { env }).decision, null);
+  const low = runHook(read(makeFile('override-low.txt', 100)), { env: { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: '1000' } });
+  assert.equal(low.decision, 'deny');
+  assert.match(low.stdout, /capped at 1000 tokens/);
 });
 
-// --- shell dump guard (cat/type/Get-Content bypassing the Read guard) ---
+test('invalid budget override falls back to the default', () => {
+  const big = makeFile('override-bad.txt', 401);
+  for (const v of ['abc', '0', '-5']) {
+    assert.equal(runHook(read(big), { env: { CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS: v } }).decision, 'deny');
+  }
+});
 
-test('Bash cat of a large file is denied', () => {
-  const big = makeFile(dir, 'cat-big.txt', 601);
-  const { decision, stdout } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big}` } });
+test('file over the 2 MB prefix is denied without a line count', () => {
+  const p = join(dir, 'huge.txt');
+  writeFileSync(p, 'x'.repeat(3 * 1024 * 1024));
+  const { decision, stdout } = runHook(read(p));
   assert.equal(decision, 'deny');
-  assert.match(stdout, /601 lines/);
-  assert.match(stdout, /offset/);
-});
-
-test('Bash cat of a small file is allowed', () => {
-  const small = makeFile(dir, 'cat-small.txt', 100);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${small}` } });
-  assert.equal(decision, null);
-});
-
-test('Bash cat piped into a filter is allowed even when large', () => {
-  const big = makeFile(dir, 'cat-pipe.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big} | grep foo` } });
-  assert.equal(decision, null);
-});
-
-test('Bash cat redirected to a file is allowed', () => {
-  const big = makeFile(dir, 'cat-redir.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat ${big} > out.txt` } });
-  assert.equal(decision, null);
-});
-
-test('cat with a cd prefix still guards the file', () => {
-  const big = makeFile(dir, 'cat-cd.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cd /tmp && cat ${big}` } });
-  assert.equal(decision, 'deny');
-});
-
-test('quoted path with spaces is guarded', () => {
-  const big = makeFile(dir, 'big file.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `cat "${big}"` } });
-  assert.equal(decision, 'deny');
-});
-
-test('PowerShell Get-Content of a large file is denied', () => {
-  const big = makeFile(dir, 'gc-big.txt', 5000);
-  const { decision } = runHook({ tool_name: 'PowerShell', tool_input: { command: `Get-Content ${big}` } });
-  assert.equal(decision, 'deny');
-});
-
-test('PowerShell Get-Content with -TotalCount is allowed', () => {
-  const big = makeFile(dir, 'gc-bound.txt', 5000);
-  const { decision } = runHook({ tool_name: 'PowerShell', tool_input: { command: `Get-Content ${big} -TotalCount 50` } });
-  assert.equal(decision, null);
-});
-
-test('shell command that is not a dump is allowed', () => {
-  const big = makeFile(dir, 'grep-target.txt', 5000);
-  const { decision } = runHook({ tool_name: 'Bash', tool_input: { command: `grep foo ${big}` } });
-  assert.equal(decision, null);
-});
-
-// --- dense/generated file guard (high avg line length, under both hard limits) ---
-
-test('dense file under both line and byte limits is denied', () => {
-  const p = join(dir, 'dense.txt');
-  // 200 lines * ~750 chars/line ≈ 150 KB total: under 600 lines AND under 256 KB,
-  // but avg bytes/line (~751) is well above the DENSE_AVG threshold (400).
-  const content = Array.from({ length: 200 }, (_, i) => `x${i}`.padEnd(750, 'y')).join('\n');
-  writeFileSync(p, content);
-  const { decision, stdout } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
-  assert.equal(decision, 'deny');
-  assert.match(stdout, /dense|generated/);
-});
-
-test('large-but-short-lined file clears DENSE_BYTES yet is allowed (only avg-line guard applies)', () => {
-  const p = join(dir, 'short-lines-big.txt');
-  // 595 lines * ~90 bytes ≈ 53 KB: total bytes CLEAR DENSE_BYTES (51200), so the
-  // size gate alone can't allow it — the only reason it isn't denied is the short
-  // average line (~90 < DENSE_AVG 400). Stays under 600 lines AND under 256 KB,
-  // so it reaches the dense check and must pass purely on avg-line-length.
-  const content = Array.from({ length: 595 }, (_, i) => `line ${i}`.padEnd(90, 'z')).join('\n');
-  writeFileSync(p, content);
-  const { decision } = runHook({ tool_name: 'Read', tool_input: { file_path: p } });
-  assert.equal(decision, null);
+  assert.match(stdout, /~786432 tokens;/);
+  assert.doesNotMatch(stdout, /lines\)/);
 });
 
 // --- realized-savings telemetry (logged at deny time) ---
@@ -216,23 +170,30 @@ test('large-but-short-lined file clears DENSE_BYTES yet is allowed (only avg-lin
 test('a deny writes a telemetry record to .claude/token-economy/denied.jsonl', () => {
   const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-'));
   try {
-    const big = makeFile(telDir, 'big.txt', 601);
-    const { decision } = runHookInDir({ tool_name: 'Read', tool_input: { file_path: big } }, telDir);
-    assert.equal(decision, 'deny');
+    const big = makeFile('big.txt', 3000, 100, telDir);
+    assert.equal(runHook(read(big), { cwd: telDir }).decision, 'deny');
 
     const logPath = join(telDir, '.claude', 'token-economy', 'denied.jsonl');
     const lines = readFileSync(logPath, 'utf8').trim().split('\n');
     const record = JSON.parse(lines[lines.length - 1]);
 
-    assert.ok('t' in record);
-    assert.ok('tool' in record);
-    assert.ok('path' in record);
-    assert.ok('lines' in record);
-    assert.ok('bytes' in record);
-    assert.ok('saved' in record);
+    for (const k of ['t', 'tool', 'path', 'lines', 'bytes', 'saved']) assert.ok(k in record, k);
     assert.equal(record.tool, 'Read');
-    assert.equal(record.lines, 601);
-    assert.ok(record.saved > 0);
+    assert.equal(record.lines, 3000);
+    // blind read = 25000 (native cap), slice = 600 lines = 15000, minus the message.
+    assert.ok(record.saved > 9000 && record.saved < 10000, String(record.saved));
+  } finally {
+    rmSync(telDir, { recursive: true, force: true });
+  }
+});
+
+test('saved is never negative', () => {
+  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-zero-'));
+  try {
+    const big = makeFile('just-over.txt', 401, 100, telDir);
+    assert.equal(runHook(read(big), { cwd: telDir }).decision, 'deny');
+    const record = JSON.parse(readFileSync(join(telDir, '.claude', 'token-economy', 'denied.jsonl'), 'utf8'));
+    assert.equal(record.saved, 0);
   } finally {
     rmSync(telDir, { recursive: true, force: true });
   }
@@ -243,8 +204,8 @@ test('deny still happens (fail-open) when the telemetry log dir cannot be create
   try {
     // Pre-create a regular FILE at .claude so mkdirSync(.claude/token-economy) throws ENOTDIR.
     writeFileSync(join(telDir, '.claude'), 'not a directory');
-    const big = makeFile(telDir, 'big.txt', 601);
-    const { decision, code } = runHookInDir({ tool_name: 'Read', tool_input: { file_path: big } }, telDir);
+    const big = makeFile('big.txt', 3000, 100, telDir);
+    const { decision, code } = runHook(read(big), { cwd: telDir });
     assert.equal(decision, 'deny');
     assert.equal(code, 0);
   } finally {
