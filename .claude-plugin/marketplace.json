@@ -1,7 +1,14 @@
 {
   "name": "token-economy",
-  "owner": { "name": "dani-lore" },
+  "owner": {
+    "name": "dani-lore"
+  },
+  "description": "Lean input tokens for Claude Code: token-budget read-guard with outline, Explore routed to a cheaper model, session-start exploration policy, exploring-codebase skill, audit and stats commands.",
   "plugins": [
-    { "name": "token-economy", "source": "./", "description": "Lean input tokens for Claude Code: token-budget read-guard with outline, Explore routed to a cheaper model, session-start exploration policy, exploring-codebase skill, audit and stats commands." }
+    {
+      "name": "token-economy",
+      "source": "./",
+      "description": "Lean input tokens for Claude Code: token-budget read-guard with outline, Explore routed to a cheaper model, session-start exploration policy, exploring-codebase skill, audit and stats commands."
+    }
   ]
 }
