@@ -290,5 +290,5 @@ node benchmarks/score.mjs --dir <path>  # benchmark di una directory qualsiasi, 
 Per provare modifiche locali: `/plugin marketplace add <path-del-clone>`,
 `/plugin install token-economy@token-economy`, poi una nuova sessione; le
 modifiche a hook, skill o comandi non toccano mai una sessione già in corso. Note
-per chi contribuisce: [AGENTS.md](AGENTS.md). Modifiche: [CHANGELOG.md](CHANGELOG.md).
+per chi contribuisce: [CLAUDE.md](CLAUDE.md). Modifiche: [CHANGELOG.md](CHANGELOG.md).
 Licenza: [MIT](LICENSE).

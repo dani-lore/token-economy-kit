@@ -286,5 +286,5 @@ node benchmarks/score.mjs --dir <path>  # benchmark any directory, print only
 To try local changes: `/plugin marketplace add <path-to-clone>`,
 `/plugin install token-economy@token-economy`, then a new session; changes to
 hooks, skills or commands never affect a session already running. Contributor
-notes: [AGENTS.md](AGENTS.md). Changes: [CHANGELOG.md](CHANGELOG.md).
+notes: [CLAUDE.md](CLAUDE.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 License: [MIT](LICENSE).

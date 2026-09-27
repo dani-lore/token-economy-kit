@@ -43,7 +43,7 @@
 - The injected policy is in English and goes to `additionalContext`.
 - Commands are user-only (`disable-model-invocation`): the model no longer sees
   or invokes them.
-- READMEs rewritten; contributor notes moved to `AGENTS.md`.
+- READMEs rewritten; contributor notes in `CLAUDE.md`.
 
 ## 1.0.0 — 2026-06-11
 
