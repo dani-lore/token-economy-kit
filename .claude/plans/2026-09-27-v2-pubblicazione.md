@@ -19,7 +19,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi § skill. Se la verifica del task 4 fallisce: scout resta, con `disallowedTools: Write, Edit, NotebookEdit, Agent` al posto di `tools:`, `omitClaudeMd: true`, `maxTurns: 20`, esempio neutro.
 - [ ] **6. SessionStart unico e policy adattiva.** File: `hooks/session-start.mjs` (nuovo), `hooks/inject-policy.mjs` e `hooks/grepai-watch.mjs` (eliminati), `hooks/hooks.json`, `tests/session-start.test.mjs` (sostituisce `inject-policy.test.mjs` e `grepai-watch.test.mjs`).
   Accettazione: vedi § session-start.
-- [ ] **7. Comandi funzionanti fuori da auto mode.** File: `commands/context-audit.md`, `commands/economy-stats.md`, `commands/economy-help.md`, `scripts/economy-stats.mjs` (nuovo), `tests/commands.test.mjs`, `tests/economy-stats.test.mjs` (nuovo).
+- [x] **7. Comandi funzionanti fuori da auto mode.** File: `commands/context-audit.md`, `commands/economy-stats.md`, `commands/economy-help.md`, `scripts/economy-stats.mjs` (nuovo), `tests/commands.test.mjs`, `tests/economy-stats.test.mjs` (nuovo).
   Accettazione: vedi § comandi; il test dei comandi verifica `allowed-tools` dove c'è un `!` e `disable-model-invocation: true` ovunque.
 - [x] **8. Benchmark onesto.** File: `benchmarks/score.mjs`, `benchmarks/README.md`, `benchmarks/results/2026-06-21-input-bloat.md` (eliminato), `benchmarks/results/<data>-input-bloat.md` (nuovo, curato a mano), `package.json`, `tests/score.test.mjs` (nuovo).
   Accettazione: vedi § benchmark.

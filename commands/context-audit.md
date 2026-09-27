@@ -1,27 +1,25 @@
 ---
 description: Audit how much input-token bloat the read-guard removes on this repo
+allowed-tools: Bash(node *)
+disable-model-invocation: true
 ---
 
-Run the input-bloat benchmark against the current working directory and report
-the result. This is the input-side analogue of a code audit: it measures the
-tokens an agent would waste blindly reading oversized files here, and how much
-the read-guard cuts.
+Report the input-bloat benchmark for the current working directory: the tokens an
+agent would spend on blind Reads here, and how much the read-guard cuts.
 
-Steps:
+Scorer output:
 
-1. Run the scorer on the current repo:
+!`node "${CLAUDE_PLUGIN_ROOT}/benchmarks/score.mjs"`
 
-   !`node "${CLAUDE_PLUGIN_ROOT}/benchmarks/score.mjs" --dir "$(pwd)"`
+From that output, report in at most six lines:
+- the cut ratio (baseline vs guarded input tokens),
+- how many text files are over the token budget,
+- the top 3 offenders (file, baseline → guarded tokens).
 
-2. Read its output and report, in at most six lines:
-   - the cut ratio (baseline vs guarded input tokens),
-   - how many text files are over the 600-line / 256 KB limit,
-   - the top 3 offenders (file, line count, tokens saved).
+Close with one line of judgement:
+- cut near 0% → "Already lean on read-bloat. The guard has little to do here."
+- cut meaningful → name the worst offender and note that the guard forces an
+  `offset`/`limit` slice of it instead of a whole-file Read.
 
-3. One closing line of judgement:
-   - cut near 0% → "Already lean on read-bloat. The guard has little to do here."
-   - cut meaningful → name the worst offender and note the guard forces a
-     targeted Read or a `scout` dispatch instead of reading it whole.
-
-Change nothing. This is a read-only report; do not edit files or persist state.
-The full numbers are written to `benchmarks/results/<date>.md` by the scorer.
+Change nothing: do not edit files or persist state. The figures are a ceiling
+(every file read blindly once), as the scorer's model line states.
