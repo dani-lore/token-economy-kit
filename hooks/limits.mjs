@@ -11,7 +11,7 @@ function envNumber(name, fallback) {
 }
 
 // Whole-file reads estimated above this many tokens are denied.
-export const READ_MAX_TOKENS = envNumber('CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', 10000);
+export const READ_BUDGET = envNumber('CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', 10000);
 // A Read with `limit` up to this many lines always passes.
 export const SLICE_MAX_LINES = 600;
 // What the native Read returns without offset/limit: first 2000 lines, capped in tokens.

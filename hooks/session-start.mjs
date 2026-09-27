@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
-import { READ_MAX_TOKENS, SLICE_MAX_LINES } from './limits.mjs';
+import { READ_BUDGET, SLICE_MAX_LINES } from './limits.mjs';
 import { readPayload } from './stdin.mjs';
 
 // A toggle is off when the plugin option or its legacy env alias is 0/false.
@@ -24,7 +24,7 @@ function grepaiRoot(cwd) {
 }
 
 function policy(hasGrepai) {
-  const k = Math.round(READ_MAX_TOKENS / 100) / 10;
+  const k = Math.round(READ_BUDGET / 100) / 10;
   const search = hasGrepai
     ? 'Locate with grepai_search first (compact: true for locations only), then Grep/Glob for exact strings.'
     : 'Locate with Grep/Glob instead of exploratory Reads.';

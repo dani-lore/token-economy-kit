@@ -1,11 +1,11 @@
 // PreToolUse hook (matcher: Read): blocks whole-file reads whose estimated
-// token cost exceeds READ_MAX_TOKENS. A Read with limit ≤ SLICE_MAX_LINES passes.
+// token cost exceeds READ_BUDGET. A Read with limit ≤ SLICE_MAX_LINES passes.
 // Contract: allow = exit 0 + no stdout; deny = exit 0 + JSON on stdout.
 
 import { openSync, readSync, closeSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import {
-  READ_MAX_TOKENS, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost, logDir,
+  READ_BUDGET, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost, logDir,
 } from './limits.mjs';
 import { readPayload } from './stdin.mjs';
 
@@ -77,7 +77,7 @@ function overBudget(filePath) {
   if (!stat.isFile()) return null;
   const bytes = stat.size;
   const est = tokens(bytes);
-  if (est <= READ_MAX_TOKENS) return null;
+  if (est <= READ_BUDGET) return null;
 
   const text = readPrefix(filePath, bytes);
   const complete = bytes <= PREFIX_BYTES;
@@ -87,7 +87,7 @@ function overBudget(filePath) {
   const size = lines == null ? '' : ` (${lines} lines)`;
   const reason =
     `Read blocked: "${filePath}" is ~${est} tokens${size}; whole-file reads are capped at ` +
-    `${READ_MAX_TOKENS} tokens. Read the part you need with offset/limit ` +
+    `${READ_BUDGET} tokens. Read the part you need with offset/limit ` +
     `(limit ≤ ${SLICE_MAX_LINES}), located via the outline below or Grep.` +
     outline(filePath, text, complete);
   // `saved` is a ceiling: what the blind read would have cost, minus the

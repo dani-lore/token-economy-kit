@@ -36,7 +36,7 @@ To try the plugin locally, inside a Claude Code session:
 `hooks/hooks.json` registers three hooks, paths via `${CLAUDE_PLUGIN_ROOT}`:
 
 - **PreToolUse** `Read` → `hooks/read-guard.mjs`. Denies a Read without `limit` ≤ 600 when the tokens
-  estimated from the size (`ceil(bytes/4)`) exceed `READ_MAX_TOKENS`; the message carries an outline
+  estimated from the size (`ceil(bytes/4)`) exceed `READ_BUDGET`; the message carries an outline
   (headings or column-0 declarations) read from a 2 MB prefix. Skips extensions in `SKIP_EXTS`.
 - **PreToolUse** `Agent|Task` → `hooks/explore-router.mjs`. Adds `model` and a report contract to
   Explore calls without `model`, via `permissionDecision: "allow"` + `updatedInput`.
