@@ -1,6 +1,5 @@
-// Tests for commands/*.md: frontmatter, permissions for injected `!` shell
-// commands (outside auto mode a non-allowed one aborts the command), and the
-// plugin files those commands run.
+// Tests for commands/*.md: frontmatter, no inline `!` shell, narrow allowed-tools
+// covering the plugin scripts the command asks Claude to run, and those files exist.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,22 +26,28 @@ for (const f of files) {
     assert.match(fm, /^disable-model-invocation:\s*true\s*$/m);
   });
 
-  const injected = [...body.matchAll(/!`([^`]+)`/g)].map((m) => m[1]);
-  if (!injected.length) continue;
+  test(`${f} has no inline shell`, () => {
+    // The directory validator reads a run-time-assembled `!` command as possible egress
+    // (MCP_FORWARDS_CREDENTIAL_ENV): Claude runs the script with a Bash call instead.
+    assert.doesNotMatch(body, /!`|^```!/m);
+  });
 
-  test(`${f} allows exactly the plugin scripts it injects`, () => {
+  const scripts = [...body.matchAll(/`(node "\$\{CLAUDE_PLUGIN_ROOT\}\/[^`]+)`/g)].map((m) => m[1]);
+  if (!scripts.length) continue;
+
+  test(`${f} allows exactly the plugin scripts it runs`, () => {
     // Narrow grants only: the directory validator holds a broad Bash(node *).
     const rules = [...fm.matchAll(/Bash\(([^)]+)\)/g)].map((m) => m[1]);
     assert.ok(rules.length, 'no Bash(...) rule in allowed-tools');
     for (const rule of rules) assert.match(rule, /^node "\$\{CLAUDE_PLUGIN_ROOT\}\//, rule);
-    for (const cmd of injected) {
+    for (const cmd of scripts) {
       const ok = rules.some((r) => (r.endsWith(' *') ? cmd.startsWith(r.slice(0, -1)) : cmd === r));
       assert.ok(ok, `not covered by allowed-tools: ${cmd}`);
     }
   });
 
   test(`${f} runs plugin files that exist`, () => {
-    for (const cmd of injected) {
+    for (const cmd of scripts) {
       const paths = [...cmd.matchAll(/\$\{CLAUDE_PLUGIN_ROOT\}\/([^"\s]+)/g)].map((m) => m[1]);
       for (const p of paths) assert.ok(existsSync(join(ROOT, p)), `missing: ${p}`);
     }
@@ -51,7 +56,7 @@ for (const f of files) {
 
 test('context-audit scores the cwd, economy-stats reads the plugin data dir', () => {
   const audit = readFileSync(join(CMD_DIR, 'context-audit.md'), 'utf8');
-  assert.match(audit, /!`node "\$\{CLAUDE_PLUGIN_ROOT\}\/benchmarks\/score\.mjs"`/);
+  assert.match(audit, /`node "\$\{CLAUDE_PLUGIN_ROOT\}\/benchmarks\/score\.mjs"`/);
   const stats = readFileSync(join(CMD_DIR, 'economy-stats.md'), 'utf8');
   assert.match(stats, /scripts\/economy-stats\.mjs" "\$\{CLAUDE_PLUGIN_DATA\}"`/);
 });

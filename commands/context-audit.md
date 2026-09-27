@@ -7,11 +7,11 @@ disable-model-invocation: true
 Report the input-bloat benchmark for the current working directory: the tokens an
 agent would spend on blind Reads here, and how much the read-guard cuts.
 
-Scorer output:
+Run the scorer with one Bash call, exactly this command, from the current working directory:
 
-!`node "${CLAUDE_PLUGIN_ROOT}/benchmarks/score.mjs"`
+`node "${CLAUDE_PLUGIN_ROOT}/benchmarks/score.mjs"`
 
-From that output, report in at most six lines:
+From its output, report in at most six lines:
 - the cut ratio (baseline vs guarded input tokens),
 - how many text files are over the token budget,
 - the top 3 offenders (file, baseline → guarded tokens).

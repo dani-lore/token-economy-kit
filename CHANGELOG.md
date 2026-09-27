@@ -2,7 +2,8 @@
 
 ## 2.0.1 — 2026-09-27
 
-- `/context-audit` and `/economy-stats` pre-approve only their own plugin script, not `Bash(node *)`.
+- `/context-audit` and `/economy-stats` pre-approve only their own plugin script, not `Bash(node *)`,
+  and no longer run inline shell when loaded: Claude runs the script with one Bash call.
 - Plugin icon added (`.claude-plugin/icon.svg`).
 - READMEs link to the grepai install instructions instead of piping a remote script into a shell.
 - Contributor guide moved to `.claude/CLAUDE.md`.
