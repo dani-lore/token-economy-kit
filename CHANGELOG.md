@@ -38,6 +38,12 @@
 - The benchmark caps both arms at the native Read limits (2,000 lines, 25,000
   tokens), scores the current directory by default, uses `git ls-files` in a repo
   and writes a report only with `--out`.
+- The exploring-codebase skill is rewritten in English around capabilities
+  (question → tool), and delegates wide exploration to Explore.
+- The injected policy is in English and goes to `additionalContext`.
+- Commands are user-only (`disable-model-invocation`): the model no longer sees
+  or invokes them.
+- READMEs rewritten; contributor notes moved to `AGENTS.md`.
 
 ## 1.0.0 — 2026-06-11
 
