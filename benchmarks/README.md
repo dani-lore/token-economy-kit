@@ -6,39 +6,62 @@ with no API calls.
 
 ## What it measures
 
-The `read-guard` hook is a pure function of a file's size: any blind Read of a
-text file over 600 lines (or 256 KB) is denied, forcing a targeted
-`offset`/`limit` Read or a `scout` dispatch instead. So the saving is not a
-behavioural guess — it is a counting exercise over a real file corpus:
+The `read-guard` hook is a pure function of a file's size: a Read without a
+`limit` of at most 600 lines is denied when the file is estimated over the token
+budget (`read_max_tokens`, default 10,000), forcing a targeted `offset`/`limit`
+Read instead. So the saving is not a behavioural guess — it is a counting
+exercise over a real file corpus:
 
-> For every file an agent might blindly Read, how many input tokens does a
-> full Read cost, and how many does the guarded path cost instead?
+> For every file an agent might blindly Read, how many input tokens does that
+> Read cost, and how many does the guarded path cost instead?
 
-- **baseline**: agent reads each candidate file in full (the common failure mode).
-- **guarded**: files within the limit read in full; files over the limit read as
-  a single targeted slice (`limit = 600` lines) — the behaviour the hook forces.
+- **baseline**: the agent reads each file without `offset`/`limit`.
+- **guarded**: files within the budget cost the same; files over it cost a
+  single targeted slice (`limit = 600` lines) — the behaviour the hook forces.
 
-Token estimate: `ceil(bytes / 4)` (the standard ~4 bytes/token approximation).
-It is an estimate, stated as one; the *ratio* between arms is what the harness
-reports and that ratio is robust to the constant.
+## Native Read caps
+
+A blind Read is not unbounded: Claude Code's Read returns at most the first
+2,000 lines, and truncates output over a token cap (25,000 by default,
+`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`). Both arms apply those caps, so the
+baseline is what a blind Read actually costs, not the size of the file on disk:
+
+| | lines | token cap |
+|---|--:|--:|
+| baseline (blind Read) | first 2,000 | 25,000 |
+| guarded, file over budget | first 600 | 25,000 |
+| guarded, file within budget | as baseline | as baseline |
+
+The thresholds come from `hooks/limits.mjs`, the same module the hook imports,
+so the benchmark always measures the guard that actually ships. Token estimate:
+`ceil(bytes / 4)` (the standard ~4 bytes/token approximation). It is an
+estimate, stated as one; the *ratio* between arms is what the harness reports
+and that ratio is robust to the constant.
 
 ## Run it
 
 ```
-npm run bench            # scores the corpus, writes results/<date>.md
-node benchmarks/score.mjs --dir <path>   # score any directory instead
+npm run bench                            # scores this repo, writes results/<date>.md
+node benchmarks/score.mjs --dir <path>   # score any directory, print only
+node benchmarks/score.mjs --dir <path> --out
 ```
 
-By default it scores this repo plus `tasks.json` (a list of real public files).
-Nothing here calls a model; it is reproducible and runs in CI.
+The corpus is the current directory unless `--dir` is given. In a git repo the
+file list is `git ls-files` (tracked files only); elsewhere it is a directory walk
+that skips `.git`, `node_modules`, `dist`, `build` and `.next`. Binary and media
+extensions are skipped in both cases, and a file that cannot be read is left out.
+The report goes to stdout; it is written to `results/<date>.md` (gitignored) only
+with `--out`. Curated reports with a different name, such as
+`results/2026-09-27-input-bloat.md`, are kept in the repo.
 
 ## Honesty notes
 
-- This measures the *ceiling* the guard removes (blind full Reads), not average
-  agent behaviour. An agent that already reads narrowly saves nothing here — and
-  that is the correct result, not a flaw.
-- It does not measure output-side savings (code written). That is a different
-  problem, solved by a different tool (e.g. ponytail). The two are complementary.
+- This measures the *ceiling* the guard removes (blind Reads of every file),
+  not average agent behaviour. An agent that already reads narrowly saves
+  nothing here — and that is the correct result, not a flaw.
 - The guarded arm assumes one 600-line slice suffices. If a task needs several
-  slices the real saving is smaller; `score.mjs` reports slices-needed so the
-  number stays falsifiable.
+  slices the real saving is smaller.
+- A file with very long lines can hit the token cap in both arms and save
+  nothing (see `uv.lock` in the curated results).
+- It does not measure output-side savings (code written). That is a different
+  problem, solved by a different tool. The two are complementary.

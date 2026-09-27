@@ -1,103 +1,114 @@
 // Deterministic input-bloat benchmark for the read-guard hook.
-// No API calls. Counts the input tokens a blind full-Read corpus costs vs the
+// No API calls. Counts the input tokens blind Reads of a corpus cost vs the
 // guarded path the hook forces. See benchmarks/README.md for the method.
+//
+//   node benchmarks/score.mjs [--dir <path>] [--out]
+//
+// --dir defaults to the cwd; --out also writes benchmarks/results/<date>.md.
 
-import { readFileSync, statSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname, extname } from 'node:path';
+import { readFileSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname, extname, relative, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import {
+  READ_MAX_TOKENS, SLICE_MAX_LINES, NATIVE_READ_LINES, NATIVE_READ_TOKENS, SKIP_EXTS,
+  tokens, blindReadCost, sliceCost,
+} from '../hooks/limits.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, '..');
-
-// Same thresholds the hook enforces. Keep in sync with hooks/read-guard.mjs.
-const MAX_LINES = 600;
-const MAX_BYTES = 262144;
-const BINARY_EXTS = new Set([
-  '.png','.jpg','.jpeg','.gif','.webp','.svg','.ico','.bmp','.pdf','.ipynb',
-  '.zip','.gz','.7z','.exe','.dll','.node','.wasm','.woff','.woff2','.ttf',
-  '.eot','.mp3','.mp4','.mov','.avi','.db','.sqlite','.sqlite3','.lock',
-]);
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next']);
 
-const tokens = (bytes) => Math.ceil(bytes / 4);
-
-function walk(dir) {
+function walk(dir, root = dir) {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) out.push(...walk(join(dir, e.name)));
-    } else if (!BINARY_EXTS.has(extname(e.name).toLowerCase())) {
-      out.push(join(dir, e.name));
+      if (!SKIP_DIRS.has(e.name)) out.push(...walk(p, root));
+    } else {
+      out.push(relative(root, p));
     }
   }
   return out;
 }
 
-// Score one file: bytes a baseline blind Read costs vs the guarded path.
-function scoreFile(path) {
-  const { size } = statSync(path);
-  const content = readFileSync(path, 'utf8');
-  const lines = (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1);
-  const over = lines > MAX_LINES || size > MAX_BYTES;
+// Tracked files when `dir` is a git repo (with any), else a directory walk.
+function listFiles(dir) {
+  const git = spawnSync('git', ['ls-files', '-z'], { cwd: dir, encoding: 'utf8' });
+  const tracked = git.status === 0 ? git.stdout.split('\0').filter(Boolean) : [];
+  const source = tracked.length ? 'git ls-files' : 'directory walk';
+  const files = (tracked.length ? tracked : walk(dir))
+    .filter((f) => !SKIP_EXTS.has(extname(f).toLowerCase()));
+  return { source, files };
+}
 
-  // Guarded: within limits -> full read; over -> one 600-line slice.
-  let guardedBytes = size;
-  if (over) {
-    const slice = content.split('\n').slice(0, MAX_LINES).join('\n');
-    guardedBytes = Buffer.byteLength(slice, 'utf8');
+// Tokens of a blind Read vs the guarded path; null if the file can't be read.
+function scoreFile(dir, rel) {
+  try {
+    const p = join(dir, rel);
+    if (!statSync(p).isFile()) return null;
+    const bytes = readFileSync(p);
+    const text = bytes.toString('utf8');
+    const baseline = blindReadCost(text);
+    const guarded = tokens(bytes.length) > READ_MAX_TOKENS;
+    return { rel, baseline, guarded, cost: guarded ? sliceCost(text) : baseline };
+  } catch {
+    return null;
   }
-  return { path, lines, baselineBytes: size, guardedBytes, guarded: over };
 }
 
 function scoreDir(dir) {
-  const rows = walk(dir).map(scoreFile);
-  const baseline = rows.reduce((a, r) => a + tokens(r.baselineBytes), 0);
-  const guarded = rows.reduce((a, r) => a + tokens(r.guardedBytes), 0);
-  const guardedFiles = rows.filter((r) => r.guarded);
-  return { dir, rows, baseline, guarded, guardedFiles };
+  const { source, files } = listFiles(dir);
+  const rows = files.map((f) => scoreFile(dir, f)).filter(Boolean);
+  const sum = (key) => rows.reduce((a, r) => a + r[key], 0);
+  return { dir, source, rows, baseline: sum('baseline'), guarded: sum('cost') };
 }
 
-function report(res) {
-  const { baseline, guarded, guardedFiles, rows } = res;
+function report(res, date) {
+  const { baseline, guarded, rows } = res;
+  const over = rows.filter((r) => r.guarded);
   const cut = baseline ? (1 - guarded / baseline) * 100 : 0;
-  const top = [...guardedFiles]
-    .sort((a, b) => (b.baselineBytes - b.guardedBytes) - (a.baselineBytes - a.guardedBytes))
-    .slice(0, 10);
-
-  const lines = [];
-  lines.push(`# Input-bloat benchmark — ${new Date().toISOString().slice(0, 10)}`);
-  lines.push('');
-  lines.push(`Corpus: \`${res.dir}\` — ${rows.length} text files, ${guardedFiles.length} over the guard limit.`);
-  lines.push('');
-  lines.push('| arm | input tokens (est.) |');
-  lines.push('|---|--:|');
-  lines.push(`| baseline (blind full Reads) | ${baseline.toLocaleString()} |`);
-  lines.push(`| guarded (read-guard active) | ${guarded.toLocaleString()} |`);
-  lines.push(`| **cut** | **${cut.toFixed(1)}%** |`);
-  lines.push('');
+  const top = [...over].sort((a, b) => (b.baseline - b.cost) - (a.baseline - a.cost)).slice(0, 10);
+  const lines = [
+    `# Input-bloat benchmark — ${date}`,
+    '',
+    `Corpus: \`${basename(resolve(res.dir))}\` — ${rows.length} text files (${res.source}), ${over.length} over the budget.`,
+    '',
+    '| arm | input tokens (est.) |',
+    '|---|--:|',
+    `| baseline (blind Reads) | ${baseline.toLocaleString('en-US')} |`,
+    `| guarded (read-guard active) | ${guarded.toLocaleString('en-US')} |`,
+    `| **cut** | **${cut.toFixed(1)}%** |`,
+    '',
+  ];
   if (top.length) {
-    lines.push('Biggest savings (file: baseline → guarded tokens):');
-    lines.push('');
+    lines.push('Biggest savings (file: baseline → guarded tokens):', '');
     for (const r of top) {
-      lines.push(`- \`${r.path.replace(res.dir, '.').replace(/\\/g, '/')}\` — ${r.lines} lines, ${tokens(r.baselineBytes).toLocaleString()} → ${tokens(r.guardedBytes).toLocaleString()}`);
+      lines.push(`- \`${r.rel.replace(/\\/g, '/')}\` — ${r.baseline.toLocaleString('en-US')} → ${r.cost.toLocaleString('en-US')}`);
     }
     lines.push('');
   }
-  lines.push('Token estimate: ceil(bytes/4). The cut ratio is the reported figure.');
+  lines.push(
+    `Model: a blind Read returns the first ${NATIVE_READ_LINES} lines, capped at ` +
+    `${NATIVE_READ_TOKENS.toLocaleString('en-US')} tokens (native Read limits). Files estimated over ` +
+    `${READ_MAX_TOKENS.toLocaleString('en-US')} tokens are denied and cost one ${SLICE_MAX_LINES}-line ` +
+    'slice under the same cap instead. Token estimate: ceil(bytes/4).',
+  );
   return { text: lines.join('\n'), cut };
 }
 
 // --- main ---
-const dirArg = process.argv.indexOf('--dir');
-const target = dirArg !== -1 ? process.argv[dirArg + 1] : ROOT;
-const res = scoreDir(target);
-const { text, cut } = report(res);
-
-const outDir = join(HERE, 'results');
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-const outFile = join(outDir, `${new Date().toISOString().slice(0, 10)}.md`);
-writeFileSync(outFile, text + '\n');
+const args = process.argv.slice(2);
+const dirArg = args.indexOf('--dir');
+const target = dirArg !== -1 ? args[dirArg + 1] : process.cwd();
+const date = new Date().toISOString().slice(0, 10);
+const { text, cut } = report(scoreDir(target), date);
 
 console.log(text);
-console.log(`\nWritten: ${outFile.replace(ROOT, '.')}`);
+if (args.includes('--out')) {
+  const outDir = join(HERE, 'results');
+  mkdirSync(outDir, { recursive: true });
+  const outFile = join(outDir, `${date}.md`);
+  writeFileSync(outFile, text + '\n');
+  console.log(`\nWritten: ${outFile}`);
+}
 console.log(`Cut: ${cut.toFixed(1)}%`);
