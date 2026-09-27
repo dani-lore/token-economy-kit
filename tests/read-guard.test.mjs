@@ -165,6 +165,74 @@ test('file over the 2 MB prefix is denied without a line count', () => {
   assert.doesNotMatch(stdout, /lines\)/);
 });
 
+// --- outline in the deny message ---
+
+// A large file with `marks` placed at given 1-based line numbers over filler.
+function withMarks(name, total, marks) {
+  const lines = Array.from({ length: total }, (_, i) => `  // filler ${i} `.padEnd(99, '.'));
+  for (const [n, text] of Object.entries(marks)) lines[n - 1] = text;
+  const p = join(dir, name);
+  writeFileSync(p, lines.join('\n'));
+  return p;
+}
+
+const reasonOf = (stdout) => JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason;
+
+test('deny lists column-0 declarations of a .js file with line numbers', () => {
+  const p = withMarks('outline.js', 1000, {
+    1: "import x from 'y';",
+    10: 'export function alpha() {',
+    200: 'class Beta {',
+    201: '  method() {',
+    300: 'export default async function gamma() {',
+    450: 'const delta = 1;',
+    600: `export const ${'long'.repeat(40)} = 2;`,
+  });
+  const reason = reasonOf(runHook(read(p)).stdout);
+  const outline = reason.split('Outline:\n')[1].split('\n');
+  assert.deepEqual(outline.slice(0, 4), [
+    'L10 export function alpha() {',
+    'L200 class Beta {',
+    'L300 export default async function gamma() {',
+    'L450 const delta = 1;',
+  ]);
+  assert.equal(outline[4], `L600 ${`export const ${'long'.repeat(40)}`.slice(0, 80)}`);
+  assert.equal(outline.length, 5);
+});
+
+test('deny lists markdown headings up to level 3', () => {
+  const p = withMarks('outline.md', 1000, {
+    1: '# Title',
+    50: '## Section',
+    100: '### Sub',
+    150: '#### Too deep',
+    200: '#hashtag',
+  });
+  const reason = reasonOf(runHook(read(p)).stdout);
+  assert.match(reason, /Outline:\nL1 # Title\nL50 ## Section\nL100 ### Sub$/);
+});
+
+test('outline caps at 30 entries', () => {
+  const marks = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [i * 10 + 1, `def f${i}():`]));
+  const reason = reasonOf(runHook(read(withMarks('outline.py', 1000, marks))).stdout);
+  const outline = reason.split('Outline:\n')[1].split('\n');
+  assert.equal(outline.length, 31);
+  assert.equal(outline[29], 'L291 def f29():');
+  assert.equal(outline[30], '… 5 more');
+});
+
+test('no outline section without matches', () => {
+  const reason = reasonOf(runHook(read(makeFile('plain.txt', 3000))).stdout);
+  assert.doesNotMatch(reason, /Outline/);
+});
+
+test('outline beyond 2 MB covers the prefix and says so', () => {
+  const p = join(dir, 'huge.ts');
+  writeFileSync(p, 'export interface Big {}\n' + 'x'.repeat(3 * 1024 * 1024) + '\nclass Hidden {}\n');
+  const reason = reasonOf(runHook(read(p)).stdout);
+  assert.match(reason, /Outline \(first 2 MB only\):\nL1 export interface Big \{\}$/);
+});
+
 // --- realized-savings telemetry (logged at deny time) ---
 
 test('a deny writes a telemetry record to .claude/token-economy/denied.jsonl', () => {
