@@ -10,9 +10,9 @@ import { READ_BUDGET, SLICE_MAX_LINES } from './limits.mjs';
 import { readPayload } from './stdin.mjs';
 
 // A toggle is off when the plugin option or its legacy env alias is 0/false.
-function enabled(option, legacy) {
-  return ![process.env[option], process.env[legacy]]
-    .some((v) => v != null && /^(0|false)$/i.test(v.trim()));
+// Callers pass env values, not names: the directory validator holds dynamic env reads.
+function enabled(...values) {
+  return !values.some((v) => v != null && /^(0|false)$/i.test(v.trim()));
 }
 
 // Nearest directory at or above `cwd` initialized by `grepai init`, else null.
@@ -57,11 +57,11 @@ try {
   const root = grepaiRoot(payload?.cwd || process.cwd());
   const out = {};
 
-  if (enabled('CLAUDE_PLUGIN_OPTION_INJECT_POLICY', 'TOKEN_ECONOMY_INJECT')) {
+  if (enabled(process.env.CLAUDE_PLUGIN_OPTION_INJECT_POLICY, process.env.TOKEN_ECONOMY_INJECT)) {
     out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: policy(root != null) };
   }
   const watchable = ['startup', 'resume'].includes(payload?.source);
-  if (root && watchable && enabled('CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART', 'GREPAI_WATCH_AUTOSTART')
+  if (root && watchable && enabled(process.env.CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART, process.env.GREPAI_WATCH_AUTOSTART)
       && startWatcher(root)) {
     out.systemMessage = `grepai watch started in the background for ${root} (stop with: grepai watch --stop)`;
   }

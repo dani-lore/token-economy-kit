@@ -4,19 +4,20 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-// Positive number from an env var, else the default (unset, non-numeric, ≤ 0).
-function envNumber(name, fallback) {
-  const n = Number(process.env[name]);
+// Positive number from an env value, else the default (unset, non-numeric, ≤ 0).
+// Env names stay literal at the call sites: the directory validator holds dynamic env reads.
+function positive(value, fallback) {
+  const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 // Whole-file reads estimated above this many tokens are denied.
-export const READ_BUDGET = envNumber('CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS', 10000);
+export const READ_BUDGET = positive(process.env.CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS, 10000);
 // A Read with `limit` up to this many lines always passes.
 export const SLICE_MAX_LINES = 600;
 // What the native Read returns without offset/limit: first 2000 lines, capped in tokens.
 export const NATIVE_READ_LINES = 2000;
-export const NATIVE_READ_CAP = envNumber('CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS', 25000);
+export const NATIVE_READ_CAP = positive(process.env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS, 25000);
 
 // Extensions the guard never judges: binaries/media, handled natively by Read.
 export const SKIP_EXTS = new Set([
