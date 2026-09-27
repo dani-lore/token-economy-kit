@@ -21,7 +21,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi § session-start.
 - [ ] **7. Comandi funzionanti fuori da auto mode.** File: `commands/context-audit.md`, `commands/economy-stats.md`, `commands/economy-help.md`, `scripts/economy-stats.mjs` (nuovo), `tests/commands.test.mjs`, `tests/economy-stats.test.mjs` (nuovo).
   Accettazione: vedi § comandi; il test dei comandi verifica `allowed-tools` dove c'è un `!` e `disable-model-invocation: true` ovunque.
-- [ ] **8. Benchmark onesto.** File: `benchmarks/score.mjs`, `benchmarks/README.md`, `benchmarks/results/2026-06-21-input-bloat.md` (eliminato), `benchmarks/results/<data>-input-bloat.md` (nuovo, curato a mano), `package.json`, `tests/score.test.mjs` (nuovo).
+- [x] **8. Benchmark onesto.** File: `benchmarks/score.mjs`, `benchmarks/README.md`, `benchmarks/results/2026-06-21-input-bloat.md` (eliminato), `benchmarks/results/<data>-input-bloat.md` (nuovo, curato a mano), `package.json`, `tests/score.test.mjs` (nuovo).
   Accettazione: vedi § benchmark.
 - [ ] **9. Metadati 2.0.0 e pulizia dati personali.** File: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `package.json`, `LICENSE` (nuovo), `CHANGELOG.md` (nuovo), `.claude/plans/2026-07-07-token-economy-improvements.md` (eliminato), `tests/manifest.test.mjs` (nuovo).
   Accettazione: vedi § metadati e § dati personali; il test verifica che ogni path in `hooks.json` esista e che `plugin.json` abbia `version` semver e `license`.
