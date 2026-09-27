@@ -5,7 +5,7 @@
 import { openSync, readSync, closeSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import {
-  READ_MAX_TOKENS, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost,
+  READ_MAX_TOKENS, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost, logDir,
 } from './limits.mjs';
 import { readPayload } from './stdin.mjs';
 
@@ -22,11 +22,11 @@ function deny(reason) {
   }) + '\n');
 }
 
-// Best-effort append to the realized-savings log. Never throws: a telemetry
-// failure must never block or break a deny (fail-open is sacred here).
+// Best-effort append to the realized-savings log in the plugin's data dir.
+// Never throws: a telemetry failure must never block or break a deny.
 function logDeny(record) {
   try {
-    const dir = join(process.cwd(), '.claude', 'token-economy');
+    const dir = logDir();
     mkdirSync(dir, { recursive: true });
     appendFileSync(join(dir, 'denied.jsonl'), JSON.stringify(record) + '\n');
   } catch {
@@ -104,7 +104,8 @@ try {
 
   const over = overBudget(input.file_path);
   if (over) {
-    logDeny({ t: Date.now(), tool: 'Read', path: input.file_path, lines: over.lines, bytes: over.bytes, saved: over.saved });
+    const project = process.env.CLAUDE_PROJECT_DIR || payload.cwd || process.cwd();
+    logDeny({ t: Date.now(), project, path: input.file_path, lines: over.lines, bytes: over.bytes, saved: over.saved });
     deny(over.reason);
   }
   process.exit(0);

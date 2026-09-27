@@ -5,7 +5,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,19 +17,23 @@ const HOOK = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'read-
 const dir = mkdtempSync(join(tmpdir(), 'read-guard-'));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
-// Hook env: no plugin options leaking in from the developer's shell.
+// Default telemetry dir for every spawn: nothing ever lands in ~/.claude.
+const dataDir = join(dir, 'plugin-data');
+
+// Hook env: temp plugin data dir, no plugin options or project dir leaking in
+// from the developer's shell.
 function hookEnv(extra = {}) {
-  const env = { ...process.env, ...extra };
+  const env = { ...process.env, CLAUDE_PLUGIN_DATA: dataDir, ...extra };
   for (const k of Object.keys(env)) {
     if (k.startsWith('CLAUDE_PLUGIN_OPTION_') && !(k in extra)) delete env[k];
   }
   delete env.CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS;
+  if (!('CLAUDE_PROJECT_DIR' in extra)) delete env.CLAUDE_PROJECT_DIR;
   return env;
 }
 
 // Run the hook with a payload object, return { stdout, code, decision }.
-// cwd defaults to the shared temp dir so deny-time telemetry lands there,
-// never in the repo root — keeps the whole suite hermetic.
+// cwd is a temp dir too, so a stray write into the cwd stays out of the repo.
 function runHook(payload, { cwd = dir, env = {} } = {}) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
@@ -235,48 +241,63 @@ test('outline beyond 2 MB covers the prefix and says so', () => {
 
 // --- realized-savings telemetry (logged at deny time) ---
 
-test('a deny writes a telemetry record to .claude/token-economy/denied.jsonl', () => {
-  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-'));
-  try {
-    const big = makeFile('big.txt', 3000, 100, telDir);
-    assert.equal(runHook(read(big), { cwd: telDir }).decision, 'deny');
+// A fresh temp dir used as both session cwd and CLAUDE_PLUGIN_DATA parent.
+function withTempDir(prefix, fn) {
+  const tmp = mkdtempSync(join(tmpdir(), prefix));
+  try { fn(tmp); } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
 
-    const logPath = join(telDir, '.claude', 'token-economy', 'denied.jsonl');
-    const lines = readFileSync(logPath, 'utf8').trim().split('\n');
-    const record = JSON.parse(lines[lines.length - 1]);
+const lastRecord = (logPath) => JSON.parse(readFileSync(logPath, 'utf8').trim().split('\n').pop());
 
-    for (const k of ['t', 'tool', 'path', 'lines', 'bytes', 'saved']) assert.ok(k in record, k);
-    assert.equal(record.tool, 'Read');
+test('a deny writes a telemetry record to CLAUDE_PLUGIN_DATA/denied.jsonl, nothing in cwd', () => {
+  withTempDir('read-guard-tel-', (tmp) => {
+    const cwd = join(tmp, 'project');
+    const data = join(tmp, 'data');
+    mkdirSync(cwd);
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    const payload = { ...read(big), cwd: join(tmp, 'payload-cwd') };
+    assert.equal(runHook(payload, { cwd, env: { CLAUDE_PLUGIN_DATA: data } }).decision, 'deny');
+
+    const record = lastRecord(join(data, 'denied.jsonl'));
+    assert.deepEqual(Object.keys(record), ['t', 'project', 'path', 'lines', 'bytes', 'saved']);
+    assert.equal(record.project, join(tmp, 'payload-cwd'));
+    assert.equal(record.path, big);
     assert.equal(record.lines, 3000);
+    assert.equal(record.bytes, 300000);
     // blind read = 25000 (native cap), slice = 600 lines = 15000, minus the message.
     assert.ok(record.saved > 9000 && record.saved < 10000, String(record.saved));
-  } finally {
-    rmSync(telDir, { recursive: true, force: true });
-  }
+    assert.deepEqual(readdirSync(cwd), []);
+  });
+});
+
+test('project is CLAUDE_PROJECT_DIR first, process cwd last', () => {
+  withTempDir('read-guard-tel-project-', (tmp) => {
+    const data = join(tmp, 'data');
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    const env = { CLAUDE_PLUGIN_DATA: data, CLAUDE_PROJECT_DIR: join(tmp, 'proj') };
+    runHook({ ...read(big), cwd: join(tmp, 'other') }, { env });
+    assert.equal(lastRecord(join(data, 'denied.jsonl')).project, join(tmp, 'proj'));
+    runHook(read(big), { cwd: tmp, env: { CLAUDE_PLUGIN_DATA: data } });
+    assert.equal(realpathSync(lastRecord(join(data, 'denied.jsonl')).project), realpathSync(tmp));
+  });
 });
 
 test('saved is never negative', () => {
-  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-zero-'));
-  try {
-    const big = makeFile('just-over.txt', 401, 100, telDir);
-    assert.equal(runHook(read(big), { cwd: telDir }).decision, 'deny');
-    const record = JSON.parse(readFileSync(join(telDir, '.claude', 'token-economy', 'denied.jsonl'), 'utf8'));
-    assert.equal(record.saved, 0);
-  } finally {
-    rmSync(telDir, { recursive: true, force: true });
-  }
+  withTempDir('read-guard-tel-zero-', (tmp) => {
+    const data = join(tmp, 'data');
+    const big = makeFile('just-over.txt', 401, 100, tmp);
+    assert.equal(runHook(read(big), { env: { CLAUDE_PLUGIN_DATA: data } }).decision, 'deny');
+    assert.equal(lastRecord(join(data, 'denied.jsonl')).saved, 0);
+  });
 });
 
 test('deny still happens (fail-open) when the telemetry log dir cannot be created', () => {
-  const telDir = mkdtempSync(join(tmpdir(), 'read-guard-tel-blocked-'));
-  try {
-    // Pre-create a regular FILE at .claude so mkdirSync(.claude/token-economy) throws ENOTDIR.
-    writeFileSync(join(telDir, '.claude'), 'not a directory');
-    const big = makeFile('big.txt', 3000, 100, telDir);
-    const { decision, code } = runHook(read(big), { cwd: telDir });
+  withTempDir('read-guard-tel-blocked-', (tmp) => {
+    // A regular FILE on the way to the data dir makes mkdirSync throw ENOTDIR.
+    writeFileSync(join(tmp, 'blocker'), 'not a directory');
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    const { decision, code } = runHook(read(big), { env: { CLAUDE_PLUGIN_DATA: join(tmp, 'blocker', 'data') } });
     assert.equal(decision, 'deny');
     assert.equal(code, 0);
-  } finally {
-    rmSync(telDir, { recursive: true, force: true });
-  }
+  });
 });
