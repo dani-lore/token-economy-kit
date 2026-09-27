@@ -1,6 +1,37 @@
 {
   "name": "token-economy",
-  "description": "Token-efficient Claude Code sessions: blocks blind full-file reads (PreToolUse hook), injects a 5-line exploration policy (SessionStart), ships the exploring-codebase skill, the low-cost scout agent, and the /context-audit, /economy-stats and /economy-help commands.",
-  "version": "1.0.0",
-  "author": { "name": "dani-lore" }
+  "description": "Keeps Claude Code sessions lean on input tokens: blocks whole-file Reads over a token budget and shows an outline to aim a slice at, routes the Explore subagent to a cheaper model, injects an exploration policy at session start (and starts grepai watch in grepai projects), and ships the exploring-codebase skill plus the /context-audit, /economy-stats and /economy-help commands.",
+  "version": "2.0.0",
+  "author": { "name": "dani-lore", "url": "https://github.com/dani-lore" },
+  "homepage": "https://github.com/dani-lore/token-economy-kit",
+  "repository": "https://github.com/dani-lore/token-economy-kit",
+  "license": "MIT",
+  "keywords": ["claude-code", "tokens", "context", "hooks", "read-guard", "explore", "grepai"],
+  "userConfig": {
+    "read_max_tokens": {
+      "type": "number",
+      "title": "Read budget (tokens)",
+      "description": "Whole-file Reads estimated above this many tokens are blocked. Reads with limit of at most 600 lines always pass.",
+      "default": 10000,
+      "min": 2000
+    },
+    "inject_policy": {
+      "type": "boolean",
+      "title": "Inject exploration policy",
+      "description": "Add the token-economy exploration policy to the model context at session start.",
+      "default": true
+    },
+    "grepai_autostart": {
+      "type": "boolean",
+      "title": "Auto-start grepai watch",
+      "description": "Start grepai watch in the background at session start, in projects with .grepai/config.yaml.",
+      "default": true
+    },
+    "explore_model": {
+      "type": "string",
+      "title": "Explore subagent model",
+      "description": "Model for Explore subagents launched without an explicit model: haiku, sonnet, opus or fable; inherit leaves the main session model.",
+      "default": "haiku"
+    }
+  }
 }

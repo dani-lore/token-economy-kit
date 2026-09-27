@@ -1,176 +1,181 @@
 # token-economy
 
-> 🇮🇹 Versione italiana: [README.it.md](README.it.md)
+[![test](https://github.com/dani-lore/token-economy-kit/actions/workflows/test.yml/badge.svg)](https://github.com/dani-lore/token-economy-kit/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Claude Code plugin for token-efficient sessions. Self-contained package: this README has everything you need to understand, install, and adopt the system — including the policies to add to your global `CLAUDE.md` and instructions for the recommended companion tools.
+> Versione italiana: [README.it.md](README.it.md)
 
----
+A Claude Code plugin that keeps input tokens down: it blocks whole-file Reads of
+big files and points to the slice worth reading, sends the Explore subagent to a
+cheaper model, and gives every session a short exploration policy.
 
-## 1. The problem
+## 1. Install in 30 seconds
 
-In Claude Code sessions, a significant portion of input tokens is spent on **exploratory reads**: the model opens entire files (sometimes very long ones) to "figure out where the thing is," when a targeted search would have returned the exact location in a few lines. The consequences are cost — but more importantly, degradation: a bloated context worsens the model's attention and brings forward compaction (lossy summarization).
-
-Two facts drive the design of this kit:
-
-1. **Textual instructions are advisory.** A rule in `CLAUDE.md` ("don't read entire files") is respected most of the time at the start of a session and forgotten under pressure or in long sessions. No prompt line can *prevent* a Read.
-2. **Only hooks are enforcement.** A `PreToolUse` hook is executed by the harness (not the model) before every tool call, and can deny it deterministically.
-
-The operating principle is: **locate, don't read**. Search (semantic or pattern-based) finds the location; Read is surgical (`offset`/`limit`) and only used to act (Edit, targeted verification). Reading is not forbidden — reading *blindly* is.
-
-### Numbers
-
-The saving is input-side (tokens spent *reading*) and scales with how much
-oversized material a repo carries. Measured deterministically by
-[`benchmarks/score.mjs`](benchmarks/score.mjs) — no API calls, runs in CI:
-
-| corpus | files over limit | input-token cut (ceiling) |
-|---|--:|--:|
-| clean app template (fastapi) | 2 / 213 | **6.1%** |
-| mid-size codebase (vscode-python) | 42 / 1,415 | **27.3%** |
-
-This is the removable *ceiling* — it assumes blind full Reads of every
-oversized file — not the average saving actually realized in a session; see
-the "Honesty notes" in [benchmarks/README.md](benchmarks/README.md). The cut
-is biggest where an agent would otherwise read generated/aggregate files
-in full (`package-lock.json`: 303k → 7k tokens) and ~0% on already-lean repos —
-the harness reports that honestly rather than a single flattering figure. Method,
-limits, and reproduction: [benchmarks/README.md](benchmarks/README.md).
-Run the hook test suite with `npm test`.
-
-## 2. The 4 plugin components
-
-| Component | File | Level | What it does |
-|---|---|---|---|
-| **read-guard** | `hooks/read-guard.mjs` | Enforcement | PreToolUse hook: denies Reads without `offset`/`limit` on text files > 600 lines or > 256 KB, and the same-sized whole-file shell dumps (`cat`/`type`/`Get-Content`/`gc`) that would otherwise bypass the guard. Piped/redirected/bounded reads (`cat f \| grep`, `Get-Content f -TotalCount 50`) pass through. The rejection message lists the 3 alternatives (search → targeted Read → scout subagent). Fail-open: any internal hook error lets the call through — it never blocks work due to its own bug. |
-| **inject-policy** | `hooks/inject-policy.mjs` | Policy | SessionStart hook: injects 5 policy lines into every session's context. Users who install the plugin don't need to touch their `CLAUDE.md` (but can, see §5). |
-| **exploring-codebase** | `skills/exploring-codebase/SKILL.md` | Protocol | On-demand skill: full decision tree (which tool for which question), scout dispatch template, examples of effective semantic queries, cases where direct Read IS the right choice. The detail lives in the skill precisely to avoid bloating the fixed context. |
-| **scout** | `agents/scout.md` | Delegation | Subagent on the **Haiku** model (~20-30× cheaper than top models): performs broad reconnaissance (3+ files, architectural overviews) in its *own* context and reports only conclusions with `path:line` references, max ~40 lines, never file dumps. Everything it reads dies with it. |
-
-**Commands** (slash commands, on demand):
-
-- `/context-audit` — runs the input-bloat benchmark against the current repo and
-  reports how much the guard saves *here* (cut ratio, files over limit, worst offenders).
-- `/economy-stats` — reports realized savings actually logged by the guard at deny
-  time (`.claude/token-economy/denied.jsonl`), vs. `/context-audit`'s static ceiling.
-- `/economy-help` — quick reference: principle, components, order of operations, commands.
-
-### Why this architecture (design rationale)
-
-- **Short policy + detail skill**: a long policy in the fixed context gets respected less and is itself waste. The 5 injected lines point to the skill, which only loads when exploration is needed.
-- **Subagent for exploration**: when a subagent explores, the files read and raw outputs stay in its isolated context; only the summary returns to the main session. It's the most robust way to keep context clean, and it's native (no external dependencies).
-- **600-line / 256 KB thresholds**: high enough not to interfere with normal work (configs, mid-size components pass through), low enough to catch the files that hurt context. Adjustable at the top of `read-guard.mjs` (`MAX_LINES`, `MAX_BYTES`).
-- **Dense/generated-file rule**: a pure size/shape heuristic (no filename allowlist) that catches files sitting under both hard limits but with a very high average line length (minified bundles, generated data) — still a blind-read bloat risk. Tunable via `DENSE_AVG` (bytes/line) and `DENSE_BYTES` (minimum size to apply the rule) in `read-guard.mjs`.
-- **Fail-open**: a guardrail that blocks work due to a bug causes more damage than the waste it prevents.
-
-## 3. Prerequisites
-
-- **Claude Code** v1.0.33+ (`claude --version`; update with `npm update -g @anthropic-ai/claude-code`)
-- **Node.js** 18+ on PATH (runs the `.mjs` hooks)
-- **Recommended, not included**: grepai, context-mode, context7 — see §6. The kit works without them (the guardrail and scout fall back to `Grep`/`Glob`), but the bulk of *location* savings comes from semantic search.
-
-**Starting from zero is supported.** Everything not included in the kit is optional and the system degrades explicitly: without grepai, scout and the skill fall back to `Grep`/`Glob`; without context-mode, the policy asks to filter output at the source (`head`, `grep`, `--quiet` flags); without context7, docs via WebFetch on the official page. No component fails due to a missing tool (absent MCP tools simply don't appear). Incremental adoption recommended: plugin first, then grepai (the single most profitable upgrade), then the rest.
-
-## 4. Plugin installation
-
-`/plugin` commands run **inside a Claude Code session** (slash commands), not from the terminal.
-
-From a GitHub repo:
+Inside a Claude Code session:
 
 ```
 /plugin marketplace add dani-lore/token-economy-kit
 /plugin install token-economy@token-economy
-/reload-plugins
 ```
 
-From a local path (testing or private use):
+Then start a new session (or run `/reload-plugins`).
 
-```
-/plugin marketplace add C:\path\to\token-economy-kit
-/plugin install token-economy@token-economy
-```
+**Check that it works:**
 
-**Visible effects after installation** (new session):
+- `/economy-help` shows the plugin's reference card.
+- `/hooks` lists `read-guard.mjs`, `explore-router.mjs` and `session-start.mjs`.
+- Ask Claude to read a large file in full (a lockfile, a long changelog): the
+  Read is blocked and the message carries an outline of the file.
 
-- at session start, the "Token Economy policy (plugin)" block appears;
-- a full Read of a long file is rejected with a message proposing alternatives; a Read with `offset`/`limit` passes normally;
-- the `scout` agent is available in the Agent tool and the `exploring-codebase` skill appears in the skill list.
+## 2. What it does
 
-### Manual setup (without plugin system)
-
-Copy the files to `~/.claude/`:
-
-```
-~/.claude/hooks/read-guard.mjs
-~/.claude/hooks/inject-policy.mjs        (optional if you put the policy in CLAUDE.md, §5)
-~/.claude/skills/exploring-codebase/SKILL.md
-~/.claude/skills/exploring-codebase/references/mcp-pruning.md
-~/.claude/agents/scout.md
-```
-
-Then register the hooks in `~/.claude/settings.json` (adjust paths; on macOS/Linux `~/.claude/...`):
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read|Bash|PowerShell",
-        "hooks": [
-          { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\read-guard.mjs\"" }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "node \"C:\\Users\\<user>\\.claude\\hooks\\inject-policy.mjs\"" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-## 5. Policy for the global CLAUDE.md (recommended)
-
-The plugin already injects the policy on every SessionStart. If you prefer to have it permanently in your `~/.claude/CLAUDE.md` (works without the plugin too, and is more visible/customizable), add this section — this is the reference version:
-
-```markdown
-## Token Economy (MANDATORY)
-
-**Locate, don't read.** Mandatory order:
-1. **Locating code** → `grepai_search` / `grepai_trace_*` (if indexed), else `Grep`/`Glob`. Never exploratory Read.
-2. **Read** only to act (Edit / targeted verification) and only narrow: `offset`/`limit` on the section you need. Full Read of files >600 lines: forbidden (hook blocks it).
-3. **Broad exploration** (architecture, "where is X", 3+ files) → `scout` subagent (Haiku): returns conclusions, not dumps.
-4. **Command output >20 lines** → context-mode (`ctx_batch_execute`) if installed, else filter at the source (head, grep, targeted flags); **library docs** → context7 if installed, else WebFetch the official docs page.
-5. Detailed protocol: skill `exploring-codebase`.
-```
-
-Optional but consistent with the system, also in the global CLAUDE.md:
-
-```markdown
-### Subagent strategy
-- Offload research, exploration, and parallel analysis to subagents (one task per subagent).
-- Use the cheapest model that can do the job: Haiku for search/recon, Sonnet for mechanical plan execution, top model for decisions and non-trivial code.
-```
-
-> If you use the [superpowers](https://github.com/anthropics/claude-plugins) plugin (or equivalent process skills like `brainstorming` / `writing-plans`), you can also add a line that invokes them explicitly for non-trivial tasks. **This is not a prerequisite**: this kit does not depend on superpowers or any other process skill.
-
-If you use both the plugin and the CLAUDE.md, the policy appears twice (harmless, ~80 tokens). To avoid it: remove the SessionStart hook from your `settings.json`, don't add the section to CLAUDE.md, or set the environment variable `TOKEN_ECONOMY_INJECT=0` to make the hook exit without printing anything.
-
-## 6. Recommended tools: what they do and how to install them
-
-Three complementary tools, each eliminating a different category of waste. Commands verified against official sources (June 2026).
-
-| Tool | Category of waste eliminated | Source |
+| Component | Kind | What it does |
 |---|---|---|
-| **grepai** | Exploratory Read/Grep on *your code*: local semantic index, search by intent ("where is toggle state persisted"), get `path:line` | github.com/yoanbernabeu/grepai |
-| **context-mode** | Raw *command* output (tests, builds, logs, JSON): runs in sandbox, indexes it, you query the index instead of receiving 500 lines in context | github.com/mksglu/context-mode |
-| **context7** | Stale *external library* documentation: up-to-date docs on demand, avoids trial-and-error cycles on changed APIs and WebSearch | github.com/upstash/context7 |
+| `read-guard` | PreToolUse hook (`Read`) | Denies a whole-file Read when the file is estimated over the token budget (default 10,000). A Read with `limit` up to 600 lines always passes. The deny lists an outline of the file with line numbers. |
+| `explore-router` | PreToolUse hook (`Agent`) | An Explore subagent launched without a model runs on a cheaper one (default `haiku`) and is asked for `path:line` conclusions instead of file dumps. |
+| `session-start` | SessionStart hook | Injects a seven-line exploration policy, adapted to whether the project uses grepai, and starts `grepai watch` in grepai projects. |
+| `exploring-codebase` | Skill | The detailed protocol, loaded on demand: which tool for which question, when a direct Read is right, when to delegate to Explore. |
+| `/context-audit` | Command | How many input tokens the guard would remove in the current repo (a ceiling). |
+| `/economy-stats` | Command | Savings the guard actually logged at deny time, for this project and all projects. |
+| `/economy-help` | Command | Reference card: components, commands, options. |
 
-### grepai (semantic codebase search)
+A real deny, produced by `read-guard` on a file of
+[microsoft/vscode-python](https://github.com/microsoft/vscode-python) (outline
+shortened here, it had 14 entries):
 
-Prerequisite: [Ollama](https://ollama.com) with the `nomic-embed-text` model (default, fully local), or an OpenAI API key for embeddings.
+```
+Read blocked: "src/client/telemetry/index.ts" is ~31096 tokens (2582 lines); whole-file reads are capped at 10000 tokens. Read the part you need with offset/limit (limit ≤ 600), located via the outline below or Grep.
+Outline:
+L23 function isTelemetrySupported(): boolean {
+L40 export function isTelemetryDisabled(): boolean {
+L49 const sharedProperties: Record<string, unknown> = {};
+L53 export function setSharedProperty<P extends ISharedPropertyMapping, E extends ke
+L76 export function getTelemetryReporter(): TelemetryReporter {
+```
+
+The model can then Read, say, `offset: 40, limit: 60` instead of the whole file.
+
+## 3. Configuration
+
+Options are set in `/config`, under the plugin options:
+
+| Option | Default | Effect | Legacy env alias |
+|---|---|---|---|
+| `read_max_tokens` | `10000` (min `2000`) | Whole-file Reads estimated above this many tokens are blocked. | — |
+| `inject_policy` | `true` | Inject the exploration policy at session start. | `TOKEN_ECONOMY_INJECT=0` |
+| `grepai_autostart` | `true` | Start `grepai watch` in the background in projects with `.grepai/config.yaml`. | `GREPAI_WATCH_AUTOSTART=0` |
+| `explore_model` | `haiku` | Model for Explore subagents launched without one: `haiku`, `sonnet`, `opus`, `fable`, or `inherit` to keep the main model. | — |
+
+A toggle is off when either the option or its legacy variable is `0` or `false`.
+
+With `inject_policy` off you can put the policy in your `CLAUDE.md` instead.
+This is the text the hook injects in a grepai project:
+
+```
+Every tool result stays in context for the rest of the session, so fetch less.
+Locate with grepai_search first (compact: true for locations only), then Grep/Glob for exact strings.
+Read to act, in slices: offset/limit (limit ≤ 600); whole-file reads over ~10k tokens are blocked by a hook.
+Wide questions that need many files read: delegate to the Explore subagent and ask for path:line conclusions; small lookups are cheaper done directly.
+Long command output: filter at the source (grep, head, quiet flags).
+Full protocol: skill exploring-codebase.
+```
+
+Without grepai, the second line becomes "Locate with Grep/Glob instead of exploratory Reads."
+
+## 4. How it works
+
+- **Enforcement, not advice.** A rule in `CLAUDE.md` is followed most of the
+  time and forgotten under pressure; no prompt line can stop a Read. A PreToolUse
+  hook runs in the harness before every tool call and denies it deterministically.
+  The policy text is the advice; `read-guard` is the enforcement.
+- **Fail-open.** Any internal error (malformed input, missing file, unwritable
+  log) lets the call through. A guardrail that blocks work because of its own bug
+  does more damage than the waste it prevents.
+- **A token budget, not a line count.** Lines are a poor proxy: 900 short lines
+  cost about 2,000 tokens, 50 minified lines can cost 25,000. The guard estimates
+  tokens from the file size (`bytes / 4`) without reading the file, and only reads
+  a prefix to build the line count and the outline once it has decided to deny.
+- **Native Read caps.** Claude Code's Read already returns at most 2,000 lines
+  and truncates output over a token cap (25,000 by default,
+  `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`). A blind Read of a big file still
+  lands up to that much mostly irrelevant text in context; the deny costs a few
+  hundred tokens and names the slice to read.
+- **Explore routing.** The built-in Explore subagent is read-only and skips
+  `CLAUDE.md`, but inherits the main session's model. `explore-router` adds a
+  `model` (default `haiku`) to Explore calls that have none, plus a one-line
+  report contract. A call with an explicit `model` is left alone.
+- **grepai autostart.** On session startup or resume, in a project with
+  `.grepai/config.yaml` (searched upward from the cwd), the hook checks
+  `grepai watch --status` and, if no watcher runs, starts `grepai watch --background`
+  and tells you so. The daemon keeps running after the session ends; stop it with
+  `grepai watch --stop`.
+
+## 5. Numbers
+
+The saving is input-side (tokens spent reading) and scales with how much
+oversized material a repo carries. Measured by
+[`benchmarks/score.mjs`](benchmarks/score.mjs), deterministic, no API calls,
+with both arms capped the way the native Read is:
+
+| corpus | files over budget | input-token cut (ceiling) |
+|---|--:|--:|
+| clean app template ([fastapi](https://github.com/fastapi/full-stack-fastapi-template)) | 3 / 238 | **4.1%** |
+| mid-size codebase ([vscode-python](https://github.com/microsoft/vscode-python)) | 20 / 1,464 | **9.5%** |
+
+This is the removable ceiling (every file read blindly once), not the saving
+realized in an average session, and ~0% on repos where every file is small.
+Details and per-file figures:
+[benchmarks/results/2026-09-27-input-bloat.md](benchmarks/results/2026-09-27-input-bloat.md);
+method and limits: [benchmarks/README.md](benchmarks/README.md).
+`/context-audit` runs the same measurement on your repo, `/economy-stats` shows
+what the guard actually logged.
+
+## 6. Privacy
+
+Everything stays on your machine; nothing is sent anywhere. Each deny appends one
+line to `denied.jsonl` in the plugin data directory
+(`~/.claude/plugins/data/token-economy-token-economy/`) with: timestamp, project
+directory, file path as passed to Read, line count, size in bytes, estimated tokens
+saved. No file contents. The directory is deleted when you uninstall the plugin,
+and you can delete the file at any time.
+
+## 7. Compatibility
+
+- Developed on Claude Code 2.1 (update with `claude update`). Older versions that
+  don't know plugin options ignore them and use the defaults.
+- Needs Node.js (current LTS) on the PATH to run the hooks, also when Claude Code
+  was installed with the native installer, which doesn't bring Node.
+- Windows, macOS and Linux; CI runs on Ubuntu and Windows.
+
+## 8. Troubleshooting
+
+- **Nothing happens, or hooks report `node` not found.** Install Node.js LTS and
+  make sure `node --version` works in the shell Claude Code starts from.
+- **The guard is too strict.** Raise `read_max_tokens` in `/config`. Reads with
+  `limit` up to 600 lines always pass.
+- **Everything happens twice** (two policies, two denies). You have both a manual
+  setup (§11) and the plugin: remove the manual hooks from `settings.json`.
+- **Changes from a new release don't show up.** Run
+  `/plugin marketplace update token-economy`, then
+  `/plugin update token-economy@token-economy`, then start a new session.
+- **Explore still runs on the main model.** Another plugin that rewrites Agent
+  calls (for example context-mode) wins over the router. Pass `model: "haiku"`
+  explicitly in the Agent call, or set `explore_model` to `inherit` and accept the
+  main model.
+
+## 9. Companion tools
+
+Optional. Without them the plugin falls back to `Grep`/`Glob` and filtering at
+the source; with them, each removes a different kind of waste.
+
+| Tool | Waste it removes | Source |
+|---|---|---|
+| **grepai** | Exploratory search in your code: local semantic index, search by intent, get `path:line` | [yoanbernabeu/grepai](https://github.com/yoanbernabeu/grepai) |
+| **context-mode** | Raw command output (tests, builds, logs): runs it in a sandbox and lets you query it | [mksglu/context-mode](https://github.com/mksglu/context-mode) |
+| **context7** | Stale library docs: current documentation on demand | [upstash/context7](https://github.com/upstash/context7) |
+
+**grepai.** Needs [Ollama](https://ollama.com) with `nomic-embed-text` (local) or
+an OpenAI key for embeddings.
 
 ```powershell
 # Windows
@@ -184,88 +189,102 @@ brew install yoanbernabeu/tap/grepai
 curl -sSL https://raw.githubusercontent.com/yoanbernabeu/grepai/main/install.sh | sh
 ```
 
-For each project, first-time indexing and MCP registration:
+Per project:
 
 ```bash
-cd <project>
-grepai init          # creates .grepai/ and configures
-grepai watch         # indexes and keeps the index up to date
+grepai init                                   # creates .grepai/
 claude mcp add grepai -s local -- grepai mcp-serve
 ```
 
-Alternatively, to share it with the team, commit a `.mcp.json` at the project root:
+The plugin then starts `grepai watch` for you. To share the server with a team,
+commit a `.mcp.json` with `{ "mcpServers": { "grepai": { "command": "grepai", "args": ["mcp-serve"] } } }`.
+
+**context-mode.** In a session: `/plugin marketplace add mksglu/context-mode`,
+`/plugin install context-mode@context-mode`, then check `/context-mode:ctx-doctor`.
+Its own PreToolUse hook rewrites Agent calls: see §8 for the Explore routing.
+
+**context7.** `/plugin install context7@claude-plugins-official`, or as an MCP
+server: `claude mcp add context7 -- npx -y @upstash/context7-mcp`.
+
+**Also evaluated, briefly:**
+
+- [ccusage](https://github.com/ryoppippi/ccusage): recommended, a local CLI that
+  reports token usage from Claude Code's logs; use it to measure before and after.
+- [Serena](https://github.com/oraios/serena): symbol-level code intelligence,
+  worth it per repo for heavy cross-file refactoring, too many tools as a default.
+- Exa / Tavily MCP: only for research-heavy sessions.
+- Memory MCPs: excluded, they add per-session injections; state in files does the job.
+- Repomix: excluded, it packs the whole repo into context, the opposite approach.
+
+## 10. Beyond the plugin
+
+- **MCP hygiene.** Every connected MCP server adds its tool definitions to every
+  session in its scope. Keep the `user` scope for what you use everywhere, `local`
+  or a committed `.mcp.json` for the rest, and turn off unused claude.ai connectors.
+  Procedure: [`mcp-pruning.md`](skills/exploring-codebase/references/mcp-pruning.md).
+- **Session practices.** One session per task, `/clear` between unrelated tasks,
+  state in files (a short `STATUS.md`, plans on disk) rather than in the
+  conversation. Decide with a capable model, delegate mechanical work and wide
+  exploration to cheaper subagents. Process skills such as
+  [superpowers](https://github.com/obra/superpowers) fit well but are not required.
+
+## 11. Manual setup (without the plugin system)
+
+The hooks and the skill also work as plain files; the commands and the
+`/config` options are available only through the plugin.
+
+Copy `hooks/*.mjs` (all five: the three hooks plus `limits.mjs` and `stdin.mjs`)
+to `~/.claude/hooks/token-economy/`, and `skills/exploring-codebase/` to
+`~/.claude/skills/exploring-codebase/`. Then register the hooks in
+`~/.claude/settings.json`.
+
+macOS / Linux:
 
 ```json
 {
-  "mcpServers": {
-    "grepai": { "command": "grepai", "args": ["mcp-serve"] }
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Read", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/token-economy/read-guard.mjs\"" }] },
+      { "matcher": "Agent|Task", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/token-economy/explore-router.mjs\"" }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/hooks/token-economy/session-start.mjs\"" }] }
+    ]
   }
 }
 ```
 
-Note: the index goes stale — after large refactors, check with `grepai_index_status` and re-index before trusting results.
+Windows: the same, with paths like
+`"node \"C:\\Users\\<user>\\.claude\\hooks\\token-economy\\read-guard.mjs\""`.
 
-### context-mode (command output out of context)
+Options become environment variables in the `env` block of `settings.json`:
+`CLAUDE_PLUGIN_OPTION_READ_MAX_TOKENS`, `CLAUDE_PLUGIN_OPTION_INJECT_POLICY`,
+`CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART`, `CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL`.
+Without the plugin, deny telemetry goes to `~/.claude/token-economy/denied.jsonl`.
 
-Inside a Claude Code session:
-
-```
-/plugin marketplace add mksglu/context-mode
-/plugin install context-mode@context-mode
-/reload-plugins
-```
-
-Verify with `/context-mode:ctx-doctor` (all checks `[x]`). Hooks and MCP tools (`ctx_batch_execute`, `ctx_search`, `ctx_execute`...) register themselves automatically.
-
-### context7 (up-to-date library docs)
-
-The official marketplace is already registered in Claude Code:
+## 12. Uninstall
 
 ```
-/plugin install context7@claude-plugins-official
+/plugin uninstall token-economy@token-economy
 ```
 
-Alternatively as a direct MCP server: `claude mcp add context7 -- npx -y @upstash/context7-mcp`. Free API key (higher rate limits) at context7.com/dashboard.
+The plugin data directory, telemetry included, is deleted with it. A `grepai watch`
+daemon started by the plugin keeps running: stop it with `grepai watch --stop` in
+the project. Manual setup: remove the hook entries from `settings.json` and the
+copied files.
 
-### Evaluated complements (June 2026) — and what we deliberately excluded
+## 13. Development
 
-The landscape was surveyed before settling on the triad. Verdicts, so you don't have to repeat the evaluation:
-
-- **[ccusage](https://github.com/ryoppippi/ccusage)** — *recommended, zero cost.* A local CLI (not an MCP: adds nothing to context) that reads Claude Code's JSONL logs and reports token usage per day/session/project. Use it to measure your baseline before and after adopting the kit: `npx ccusage`.
-- **[Serena](https://github.com/oraios/serena)** — *optional, per-repo.* LSP-based code intelligence (symbol-level find-references, cross-file renames). Genuinely complementary to grepai (semantic search by intent vs. exact symbol graph), but injects ~15 tool definitions per session. Worth it in repos with heavy cross-file refactoring; overkill as a default.
-- **Exa / Tavily MCP** — *optional, research-heavy users only.* Condensed web search results instead of full-page fetches. Adds an MCP + API key; for coding work, web research is a minor waste category. Skip unless your sessions are research-dominated.
-- **Memory MCPs (claude-mem, mem0, basic-memory)** — *excluded.* They reduce context re-derivation but add per-session injections and retrieval latency — exactly the fixed-context cost this kit fights. State-in-files (§8) covers the same need for free.
-- **Repomix** — *excluded.* Packs the whole repo into context for one-shot analysis: the opposite philosophy of retrieve-on-demand. Useful for one-off external audits, a net regression as a session workflow.
-
-Native Claude Code features (deferred tool schemas, auto-compaction) keep improving and reduce the fixed cost of installed MCPs — but they don't replace any element of the triad.
-
-## 7. MCP hygiene and fixed context (the savings you don't see)
-
-Often the biggest waste isn't Reads: it's the **fixed context** loaded at every session.
-
-- **MCP servers with `user` scope** load their tools into *every* repo. Rule: `user` scope only for what you use everywhere; `local` scope (per-project, private) for the rest; committed `.mcp.json` for what the whole team needs. Full procedure, with `claude mcp add/remove/list` commands, in [`skills/exploring-codebase/references/mcp-pruning.md`](skills/exploring-codebase/references/mcp-pruning.md).
-- **Plugins with many skills** (e.g. example collections): each skill adds its description to every session's context. Disable non-daily ones globally (`/plugin`), re-enable them per-repo where needed (`.claude/settings.local.json` → `enabledPlugins`).
-- **claude.ai connectors** (Gmail, Drive, travel, etc.): managed from claude.ai → Settings → Connectors, not from the CLI. Disable those you don't use for work.
-- **SessionStart hooks**: every automatic injection has a per-session cost. Keep high-value ones (e.g. a ~10-line project STATUS.md), remove the rest.
-
-A short context isn't just cheaper: it degrades the model's attention less and delays compaction. It's a *quality* benefit, before being a cost one.
-
-## 8. Beyond the plugin: session practices
-
-The plugin covers *instrumental* waste (reads, output, docs, fixed context). The two remaining levers are behavioral — no hook can do them for you, and together they're worth as much as everything else:
-
-**Session hygiene.** A session's cost grows super-linearly with its length: every exchange re-transmits the entire prior history. So: one session = one task; `/clear` between unrelated tasks; persistent state in *files*, not in the conversation (a ~10-line `STATUS.md` with current phase and active plan, checkbox plans in `plans/*.md`, decisions in ADRs). If state lives in files, every session can start short and cold without losing anything — and it's also the prerequisite for delegating to subagents.
-
-**Model orchestration.** Not every step deserves the same model: plan and decide with the capable model, execute mechanical work with a cheaper one. In practice: Haiku subagent for search/reconnaissance (scout), Sonnet subagent for well-specified plan tasks, top model in the main session for architecture, review, and non-trivial code. The reverse also works: daily session on Sonnet, `/model` to switch up only when needed.
-
-**When to stop.** This kit + the two practices above are the high-yield baseline. Beyond that (manual cache tuning, aggressive output compression, micro-managing every tool call) returns collapse: hours of configuration for percentage points, and overly rigid rules start to cost in *response quality*. If the guardrail blocks you more than once a day, raise the thresholds instead of adding exceptions.
-
-## 9. Deactivation / rollback
+Node ESM, no dependencies, no build step.
 
 ```
-/plugin uninstall token-economy
+npm test                                # all tests (Node 21+ for the test glob)
+npm run bench                           # benchmark this repo, writes benchmarks/results/<date>.md
+node benchmarks/score.mjs --dir <path>  # benchmark any directory, print only
 ```
 
-Manual setup: remove the `hooks` entries from `settings.json` and delete the copied files. The entire kit is additive: no destructive changes to undo.
-
-To retune the guardrail thresholds without uninstalling: edit `MAX_LINES` / `MAX_BYTES` in `hooks/read-guard.mjs`.
+To try local changes: `/plugin marketplace add <path-to-clone>`,
+`/plugin install token-economy@token-economy`, then a new session; changes to
+hooks, skills or commands never affect a session already running. Contributor
+notes: [AGENTS.md](AGENTS.md). Changes: [CHANGELOG.md](CHANGELOG.md).
+License: [MIT](LICENSE).
