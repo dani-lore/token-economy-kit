@@ -15,7 +15,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi § telemetria; nessun file scritto nella cwd; deny intatto con directory di log non creabile.
 - [x] **4. Explore instradato su modello economico.** File: `hooks/explore-router.mjs` (nuovo), `hooks/hooks.json`, `tests/explore-router.test.mjs`.
   Accettazione: vedi § explore-router; test: Explore senza `model` → `haiku` + contratto; `model` esplicito → nessun output; altro `subagent_type` → nessun output; opzione `sonnet` rispettata; `inherit` → nessun output; stdin malformato → exit 0 silenzioso. Verifica headless obbligatoria (§ verifica Explore) prima del task 5.
-- [ ] **5. Via scout, skill riscritta.** File: `agents/scout.md` (eliminato), `skills/exploring-codebase/SKILL.md`, `skills/exploring-codebase/references/mcp-pruning.md`.
+- [x] **5. Via scout, skill riscritta.** File: `agents/scout.md` (eliminato), `skills/exploring-codebase/SKILL.md`, `skills/exploring-codebase/references/mcp-pruning.md`.
   Accettazione: vedi § skill. Se la verifica del task 4 fallisce: scout resta, con `disallowedTools: Write, Edit, NotebookEdit, Agent` al posto di `tools:`, `omitClaudeMd: true`, `maxTurns: 20`, esempio neutro.
 - [ ] **6. SessionStart unico e policy adattiva.** File: `hooks/session-start.mjs` (nuovo), `hooks/inject-policy.mjs` e `hooks/grepai-watch.mjs` (eliminati), `hooks/hooks.json`, `tests/session-start.test.mjs` (sostituisce `inject-policy.test.mjs` e `grepai-watch.test.mjs`).
   Accettazione: vedi § session-start.
