@@ -11,7 +11,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi "Specifiche" § limits e § read-guard. Ramo Bash/PowerShell rimosso e matcher solo `Read`; i 9 test shell eliminati, i test per righe riscritti per token; nuovi casi: `offset` senza `limit` negato, `limit` 601 negato, `limit` 600 ammesso, 900 righe corte ammesse, `.lock` grande negato, override della soglia via env.
 - [x] **2. Mappa del file nel deny.** File: `hooks/read-guard.mjs`, `tests/read-guard.test.mjs`.
   Accettazione: vedi § outline; test con un `.js` (dichiarazioni a righe note) e un `.md` (heading).
-- [ ] **3. Telemetria fuori dai repo utente.** File: `hooks/read-guard.mjs`, `.gitignore` (via la riga `.claude/token-economy/`), `tests/read-guard.test.mjs`.
+- [x] **3. Telemetria fuori dai repo utente.** File: `hooks/read-guard.mjs`, `.gitignore` (via la riga `.claude/token-economy/`), `tests/read-guard.test.mjs`.
   Accettazione: vedi § telemetria; nessun file scritto nella cwd; deny intatto con directory di log non creabile.
 - [x] **4. Explore instradato su modello economico.** File: `hooks/explore-router.mjs` (nuovo), `hooks/hooks.json`, `tests/explore-router.test.mjs`.
   Accettazione: vedi § explore-router; test: Explore senza `model` → `haiku` + contratto; `model` esplicito → nessun output; altro `subagent_type` → nessun output; opzione `sonnet` rispettata; `inherit` → nessun output; stdin malformato → exit 0 silenzioso. Verifica headless obbligatoria (§ verifica Explore) prima del task 5.
