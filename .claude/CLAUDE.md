@@ -76,9 +76,10 @@ Holds for all three, and it is what the tests check:
 - Windows and POSIX are both CI targets: no hardcoded paths, no shell (`spawn` without `shell: true`),
   stdin stripped of the UTF-8 BOM PowerShell prepends.
 - Another plugin with a PreToolUse on `Agent` returning `updatedInput` (e.g. context-mode) wins over the router.
-- Commands never use inline shell (`` !`…` ``): the plugin directory validator pairs it with any env
-  read as credential egress (`MCP_FORWARDS_CREDENTIAL_ENV`). The body asks Claude to run the script
-  with one Bash call, pre-approved by a narrow `allowed-tools` rule on that exact script.
+- The plugin directory validator pairs any env read with any possible egress as a credential leak
+  (`MCP_FORWARDS_CREDENTIAL_ENV`). Egress includes inline command shell (`` !`…` ``) and any URL in a
+  shipped non-Markdown file, even the SVG `xmlns`. So: commands ask Claude to run their script with
+  one Bash call (narrow `allowed-tools` rule on that exact script), and the icon is a PNG.
 - `benchmarks/results/<date>.md` is auto-generated and gitignored; curated reports with another name are tracked.
 
 ## Constraints
