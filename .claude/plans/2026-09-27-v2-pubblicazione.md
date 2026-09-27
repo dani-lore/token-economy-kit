@@ -27,7 +27,7 @@ Decisioni prese: ramo shell del read-guard eliminato; `scout` sostituito da Expl
   Accettazione: vedi § metadati e § dati personali; il test verifica che ogni path in `hooks.json` esista e che `plugin.json` abbia `version` semver e `license`.
 - [x] **10. README per la pubblicazione.** `[PARALLEL]` con 11. File: `README.md`, `README.it.md`.
   Accettazione: vedi § README; EN e IT in parità.
-- [ ] **11. AGENTS.md fonte unica.** `[PARALLEL]` con 10. File: `AGENTS.md` (oggi untracked, con errori da sostituzione Claude Code→Codex), `CLAUDE.md`.
+- [x] **11. AGENTS.md fonte unica.** `[PARALLEL]` con 10. File: `AGENTS.md` (oggi untracked, con errori da sostituzione Claude Code→Codex), `CLAUDE.md`.
   Accettazione: `AGENTS.md` riprende lo scheletro dell'attuale `CLAUDE.md` aggiornato alla 2.0 (3 hook, `limits.mjs` fonte unica delle soglie, telemetria in `CLAUDE_PLUGIN_DATA`, `scripts/`, opzioni `userConfig` con alias legacy, test ermetici con `CLAUDE_PLUGIN_DATA` temporanea, niente conteggio dei test, via il gotcha "soglie duplicate"); target resta Claude Code, percorsi `.claude/`; `CLAUDE.md` contiene solo `@AGENTS.md`.
 - [ ] **12. Verifica finale e PR.** Accettazione: `npm test` verde; grep § dati personali vuoto; `git push`; `gh pr create --base main` con sommario, breaking changes e passi post-merge (§ fuori repo).
 
