@@ -52,6 +52,17 @@ Other components are auto-discovered: `skills/exploring-codebase/` (protocol + `
 `commands/` (`/context-audit`, `/economy-stats`, `/economy-help`). `scripts/economy-stats.mjs` backs
 `/economy-stats`. Options live in `userConfig` in `plugin.json`.
 
+**Status band (mod, provisional on `feat/status-band`).** `hooks/hooks.json` also lists
+`"modules": ["./register.tsx"]`: a Claude Code mod, compiled by the host (no build step), state contract in
+`types/index.d.ts`. It runs `node scripts/band-status.mjs --cwd --session --model` (one JSON object: grepai
+config/daemon/reason + absolute `bin`, heartbeat from `sessions.jsonl`, session/project savings from all
+`~/.claude/plugins/data/token-economy-*` dirs) on `session.start` and `turn.complete`, and shows it as the
+plugin's status line (`$.ui.status`, ending in `/te for info`). The card above the prompt is shared with other
+plugins (ponytail draws there), so the band shows only for a grepai action (Init/Start/Retry), work in
+progress, an error, or after `/te` (`?` explanations, `⚙` segment picker persisted in `$.store`, `✕`).
+Only `band-status.mjs` and its helpers are tested; `register.tsx` is checked with `claude plugin validate`
+and `tsc` against the engine's types (`.claude-plugin/types/` of a loaded copy), then by eye in VS Code.
+
 ## Hook contract
 
 Holds for all three, and it is what the tests check:

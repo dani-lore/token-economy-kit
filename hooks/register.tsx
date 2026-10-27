@@ -36,7 +36,8 @@ async function publishStatus($: EngineInterface) {
   if (!s?.grepai || !s.plugin || !s.savings) return
   const off = await read($, hidden)
   const seg = segments(s)
-  $.ui.status(SEGMENTS.filter(id => !off.includes(id)).map(id => seg[id].text).join(' │ ') || undefined)
+  const parts = SEGMENTS.filter(id => !off.includes(id)).map(id => seg[id].text)
+  $.ui.status([...parts, '/te for info'].join(' │ '))
 }
 
 // Runs grepai commands in order, stops at the first failure, then refreshes. A press hook has a
