@@ -1,5 +1,6 @@
-// Status band above the prompt: plugin and grepai health, token savings (session and project).
-// All logic lives in scripts/band-status.mjs (testable Node); this module only runs it and draws.
+// Status band above the prompt: plugin and grepai health, token savings (session and project),
+// sibling modes (ponytail, caveman). All logic lives in scripts/band-status.mjs (testable Node);
+// this module only runs it and draws. `?` explains each segment, `⚙` picks which ones show.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -9,13 +10,18 @@ import type { BandStatus, Savings } from '../types'
 const status = atom({ plugin: 'token-economy', key: 'status' } as const, null)
 const busy = atom({ plugin: 'token-economy', key: 'busy' } as const, null)
 const error = atom({ plugin: 'token-economy', key: 'error' } as const, null)
+const panel = atom({ plugin: 'token-economy', key: 'panel' } as const, null)
+const hidden = atom({ plugin: 'token-economy', key: 'hidden' } as const, [])
+
+const SEGMENTS = ['te', 'grepai', 'session', 'project', 'ponytail', 'caveman'] as const
+type Segment = (typeof SEGMENTS)[number]
 
 const script = ($: EngineInterface) => `${$.plugin.root}/scripts/band-status.mjs`
 
 async function refresh($: EngineInterface) {
   try {
     const [cwd, session, model] = await Promise.all([$.session.root(), $.session.id(), $.session.model()])
-    const r = await $.process.run(['node', script($), '--cwd', cwd, '--session', session, '--model', model], { timeout: 10000 })
+    const r = await $.process.run(['node', script($), '--cwd', cwd, '--session', session, '--model', model], { timeoutMs: 10000 })
     await update($, status, () => JSON.parse(r.stdout) as BandStatus)
     await update($, error, () => null)
   } catch (err) {
@@ -30,7 +36,7 @@ async function act($: EngineInterface, label: string, steps: string[][]) {
   try {
     const cwd = await $.session.root()
     for (const argv of steps) {
-      const r = await $.process.run(argv, { cwd, timeout: 60000 })
+      const r = await $.process.run(argv, { cwd, timeoutMs: 60000 })
       if (r.exitCode !== 0) {
         const why = (r.stderr || r.stdout).trim().split('\n')[0] ?? ''
         await update($, error, () => `${argv.slice(1, 2).join(' ')}: ${why.slice(0, 80)}`)
@@ -42,6 +48,11 @@ async function act($: EngineInterface, label: string, steps: string[][]) {
   }
   await update($, busy, () => null)
   await refresh($)
+}
+
+async function toggleSegment($: EngineInterface, id: Segment) {
+  const after = await update($, hidden, h => (h.includes(id) ? h.filter(x => x !== id) : [...h, id]))
+  await $.store.set('hidden', after)
 }
 
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
@@ -56,25 +67,34 @@ const GREPAI_TIPS: Record<string, string> = {
   'status check failed': 'grepai watch --status failed or timed out. Retry, or run it in a terminal to see why.',
 }
 
-// One line per segment, shown on hover: what the segment means right now.
-function tips(s: BandStatus) {
+function grepaiTip(g: BandStatus['grepai']) {
+  if (g.running) return 'grepai watch is running: the semantic index follows your edits.'
+  if (g.reason?.startsWith('model ')) return `The watcher is stopped and Ollama lacks the embedding model: ollama pull ${g.reason.split(' ')[1]}`
+  return GREPAI_TIPS[g.reason ?? ''] ?? 'grepai state unknown.'
+}
+
+// Segment text and its one-line explanation, for the current status.
+function segments(s: BandStatus): Record<Segment, { text: string; tip: string }> {
   const g = s.grepai
   const o = s.plugin.options ?? {}
+  const mode = (name: string, m: string | null) => `${m ? '●' : '○'} ${name}${m && m !== 'full' ? `:${m}` : ''}`
   return {
-    plugin: s.plugin.seen
-      ? `token-economy hooks ran at this session's start (v${s.plugin.version ?? '?'}: read budget ${o.read_budget}, Explore on ${o.explore_model}, policy ${o.inject_policy ? 'on' : 'off'}, grepai autostart ${o.grepai_autostart ? 'on' : 'off'}).`
-      : "No session-start record from token-economy for this session: the plugin is disabled, or the installed version predates the heartbeat. The read-guard may still be active.",
-    grepai: g.running
-      ? 'grepai watch is running: the semantic index follows your edits.'
-      : GREPAI_TIPS[g.reason ?? ''] ?? (g.reason?.startsWith('model ') ? `The watcher is stopped and Ollama lacks the embedding model: ollama pull ${g.reason.split(' ')[1]}` : 'grepai state unknown.'),
-    session: 'Tokens kept out of context in this session by blocked whole-file Reads (upper bound). net subtracts the slices read afterwards; ~$ is net at the session model input price, counted once.',
-    project: 'Same as session, summed over every session in this project.',
+    te: s.plugin.seen
+      ? { text: `● TE ${s.plugin.version ?? ''}`, tip: `TE: token-economy hooks ran at this session's start (read budget ${o.read_budget}, Explore on ${o.explore_model}, policy ${o.inject_policy ? 'on' : 'off'}, grepai autostart ${o.grepai_autostart ? 'on' : 'off'}).` }
+      : { text: '○ TE hooks', tip: 'TE: no session-start record from token-economy for this session. The plugin is disabled, or the installed version predates this band (the read-guard may still be active).' },
+    grepai: { text: g.running ? '● grepai' : `○ grepai: ${g.reason ?? 'unknown'}`, tip: `grepai: ${grepaiTip(g)}` },
+    session: { text: `session ${money(s.savings.session)}`, tip: 'session: tokens kept out of context by blocked whole-file Reads (upper bound); net subtracts the slices read afterwards; ~$ is net at the session model input price, counted once.' },
+    project: { text: `project ${money(s.savings.project)}`, tip: 'project: the same, summed over every session in this project.' },
+    ponytail: { text: mode('ponytail', s.modes.ponytail), tip: `ponytail: ${s.modes.ponytail ? `active (${s.modes.ponytail}), YAGNI coding mode` : 'off'}. Switch with /ponytail lite|full|ultra.` },
+    caveman: { text: mode('caveman', s.modes.caveman), tip: `caveman: ${s.modes.caveman ? `active (${s.modes.caveman}), terse replies` : 'off'}. Switch with /caveman lite|full|ultra.` },
   }
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    const saved = await $.store.get('hidden')
+    if (Array.isArray(saved)) await update($, hidden, () => saved.filter((x): x is string => typeof x === 'string'))
     await refresh($)
     return result
   })
@@ -92,53 +112,62 @@ export const register: Register = on => {
     }
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const working = await read($, busy)
-    const problem = await read($, error)
+    const [working, problem, open, off] = await Promise.all([read($, busy), read($, error), read($, panel), read($, hidden)])
     const g = s.grepai
     // Absolute path resolved by band-status outside the repo: never a bare 'grepai' (cwd lookup on Windows).
     const bin = g.bin
-    const tip = tips(s)
-    // A segment lights its hover group; the matching hidden line below is revealed while it is hovered.
-    const seg = (id: keyof typeof tip, text: string) => (
-      <Box key={`seg-${id}`} hover={{ scope: `te-${id}` }}>
-        <Text dimColor>{text}</Text>
-      </Box>
-    )
-    const reveal = (id: keyof typeof tip) => (
-      <Box key={`tip-${id}`} display="none" hover={{ scope: `te-${id}`, display: 'flex' }}>
-        <Text>{tip[id]}</Text>
+    const seg = segments(s)
+    const shown = SEGMENTS.filter(id => !off.includes(id))
+    const togglePanel = (p: 'help' | 'settings') => () => void update($, panel, cur => (cur === p ? null : p))
+
+    const grepaiButtons = working ? (
+      <Text dimColor>{working}… </Text>
+    ) : (
+      <Box>
+        {[
+          bin && !g.config ? (
+            <Button
+              key="init"
+              label="Init (creates .grepai/, edits .gitignore)"
+              onPress={() => void act($, 'init', [[bin, 'init', '--yes'], [bin, 'watch', '--background']])}
+            />
+          ) : null,
+          bin && g.config && g.running === false ? (
+            <Button key="start" label="Start" onPress={() => void act($, 'start', [[bin, 'watch', '--background']])} />
+          ) : null,
+          !g.running ? <Button key="retry" label="Retry" onPress={() => void refresh($)} /> : null,
+        ].filter(b => b !== null)}
       </Box>
     )
 
     return (
       <Box flexDirection="column">
         <Box>
-          {seg('plugin', s.plugin.seen ? `● TE ${s.plugin.version ?? ''}` : '○ TE hooks')}
-          <Text dimColor> │ </Text>
-          {seg('grepai', g.running ? '● grepai' : `○ grepai: ${g.reason ?? 'unknown'}`)}
+          {shown.map((id, i) => (
+            <Box key={`seg-${id}`}>
+              {i > 0 ? <Text dimColor> │ </Text> : null}
+              <Text dimColor>{seg[id].text} </Text>
+              {id === 'grepai' ? grepaiButtons : null}
+            </Box>
+          ))}
           <Text> </Text>
-          {working ? <Text dimColor>{working}… </Text> : null}
-          {!working && bin && !g.config ? (
-            <Button
-              key="init"
-              label="Init (creates .grepai/, edits .gitignore)"
-              onPress={() => void act($, 'init', [[bin, 'init', '--yes'], [bin, 'watch', '--background']])}
-            />
-          ) : null}
-          {!working && bin && g.config && g.running === false ? (
-            <Button key="start" label="Start" onPress={() => void act($, 'start', [[bin, 'watch', '--background']])} />
-          ) : null}
-          {!working && !g.running ? <Button key="retry" label="Retry" onPress={() => void refresh($)} /> : null}
-          <Text dimColor> │ </Text>
-          {seg('session', `session ${money(s.savings.session)}`)}
-          <Text dimColor> │ </Text>
-          {seg('project', `project ${money(s.savings.project)}`)}
+          <Button key="help" label="?" onPress={togglePanel('help')} />
+          <Button key="settings" label="⚙" onPress={togglePanel('settings')} />
           {problem ? <Text color="red"> {problem}</Text> : null}
         </Box>
-        {reveal('plugin')}
-        {reveal('grepai')}
-        {reveal('session')}
-        {reveal('project')}
+        {open === 'help' ? shown.map(id => <Text key={`tip-${id}`} dimColor>{seg[id].tip}</Text>) : null}
+        {open === 'settings' ? (
+          <Box>
+            <Text dimColor>Show: </Text>
+            {SEGMENTS.map(id => (
+              <Button
+                key={`toggle-${id}`}
+                label={`${off.includes(id) ? '☐' : '☑'} ${id}`}
+                onPress={() => void toggleSegment($, id)}
+              />
+            ))}
+          </Box>
+        ) : null}
       </Box>
     )
   })
