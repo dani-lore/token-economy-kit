@@ -23,7 +23,21 @@ export function parseEmbedder(yaml) {
     const m = line.match(/^\s+(provider|endpoint|model)\s*:\s*["']?([^"'#\s]+)/);
     if (m) out[m[1]] = m[2];
   }
+  // The config comes from the repo: a model name that is not a plain Ollama tag is dropped,
+  // since the band shows it inside an `ollama pull` suggestion.
+  if (out.model && !/^[A-Za-z0-9._/-]+(:[A-Za-z0-9._-]+)?$/.test(out.model)) delete out.model;
   return out;
+}
+
+// /api/tags URL of a loopback Ollama endpoint, else null. The endpoint comes from the repo and the band
+// polls on every turn: never send that request off this machine.
+export function loopbackTags(endpoint) {
+  try {
+    const url = new URL(endpoint);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return null;
+    return new URL('/api/tags', url.origin).href;
+  } catch { return null; }
 }
 
 // True if `model` is among the /api/tags names; `nomic-embed-text` matches `nomic-embed-text:latest`.
@@ -44,10 +58,11 @@ export function watcherState(root, bin) {
 export async function diagnoseStopped(root) {
   try {
     const cfg = parseEmbedder(readFileSync(join(root, '.grepai', 'config.yaml'), 'utf8'));
-    if (cfg.provider !== 'ollama' || !cfg.endpoint) return 'daemon stopped';
+    const tagsUrl = cfg.provider === 'ollama' && loopbackTags(cfg.endpoint);
+    if (!tagsUrl) return 'daemon stopped';
     let tags;
     try {
-      const res = await fetch(`${cfg.endpoint.replace(/\/+$/, '')}/api/tags`, { signal: AbortSignal.timeout(1500) });
+      const res = await fetch(tagsUrl, { signal: AbortSignal.timeout(1500) });
       if (!res.ok) return 'Ollama unreachable';
       tags = await res.json();
     } catch { return 'Ollama unreachable'; }

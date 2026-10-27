@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { parseWatchStatus, parseEmbedder, modelInTags } from '../scripts/band-grepai.mjs';
+import { parseWatchStatus, parseEmbedder, modelInTags, loopbackTags } from '../scripts/band-grepai.mjs';
 
 const script = fileURLToPath(new URL('../scripts/band-status.mjs', import.meta.url));
 const tmp = () => mkdtempSync(join(tmpdir(), 'band-'));
@@ -111,4 +111,21 @@ test('modelInTags matches the name with or without tag', () => {
   assert.equal(modelInTags(tags, 'nomic-embed-text:latest'), true);
   assert.equal(modelInTags(tags, 'bge-m3'), false);
   assert.equal(modelInTags({}, 'x'), false);
+});
+
+test('loopbackTags: only loopback http(s) endpoints, path fixed to /api/tags', () => {
+  assert.equal(loopbackTags('http://localhost:11434'), 'http://localhost:11434/api/tags');
+  assert.equal(loopbackTags('http://127.0.0.1:11434/v1?x=1#y'), 'http://127.0.0.1:11434/api/tags');
+  assert.equal(loopbackTags('http://[::1]:11434'), 'http://[::1]:11434/api/tags');
+  assert.equal(loopbackTags('http://169.254.169.254/latest'), null);
+  assert.equal(loopbackTags('http://localhost.evil.com'), null);
+  assert.equal(loopbackTags('file:///etc/passwd'), null);
+  assert.equal(loopbackTags('not a url'), null);
+});
+
+test('parseEmbedder drops a model name that is not a plain Ollama tag', () => {
+  const model = (m) => parseEmbedder(`embedder:\n  model: ${m}\n`).model;
+  assert.equal(model('nomic-embed-text:latest'), 'nomic-embed-text:latest');
+  assert.equal(model('x;rm'), undefined);
+  assert.equal(model('$(evil)'), undefined);
 });
