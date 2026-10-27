@@ -6,7 +6,8 @@
   "homepage": "https://github.com/dani-lore/token-economy-kit",
   "repository": "https://github.com/dani-lore/token-economy-kit",
   "license": "MIT",
-  "keywords": ["claude-code", "tokens", "context", "hooks", "read-guard", "explore", "grepai"],
+  "types": "./types/index.d.ts",
+  "keywords":["claude-code", "tokens", "context", "hooks", "read-guard", "explore", "grepai"],
   "userConfig": {
     "read_budget": {
       "type": "number",
