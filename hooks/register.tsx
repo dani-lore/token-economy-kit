@@ -1,5 +1,6 @@
-// Status band above the prompt: plugin and grepai health, token savings (session and project).
-// All logic lives in scripts/band-status.mjs (testable Node); this module only runs it and draws. `?` explains each segment, `⚙` picks which ones show.
+// Status line + on-demand band: plugin and grepai health, token savings (session and project) go to
+// this plugin's status line; the band above the prompt shows only for a grepai action, an error, or /te.
+// All logic lives in scripts/band-status.mjs (testable Node); this module only runs it and draws.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -26,6 +27,16 @@ async function refresh($: EngineInterface) {
   } catch (err) {
     await update($, error, () => `status failed: ${String(err).slice(0, 80)}`)
   }
+  await publishStatus($)
+}
+
+// The everyday view: one status line with the shown segments. The band is only for actions.
+async function publishStatus($: EngineInterface) {
+  const s = await read($, status)
+  if (!s?.grepai || !s.plugin || !s.savings) return
+  const off = await read($, hidden)
+  const seg = segments(s)
+  $.ui.status(SEGMENTS.filter(id => !off.includes(id)).map(id => seg[id].text).join(' │ ') || undefined)
 }
 
 // Runs grepai commands in order, stops at the first failure, then refreshes. A press hook has a
@@ -52,6 +63,7 @@ async function act($: EngineInterface, label: string, steps: string[][]) {
 async function toggleSegment($: EngineInterface, id: Segment) {
   const after = await update($, hidden, h => (h.includes(id) ? h.filter(x => x !== id) : [...h, id]))
   await $.store.set('hidden', after)
+  await publishStatus($)
 }
 
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
@@ -89,6 +101,7 @@ function segments(s: BandStatus): Record<Segment, { text: string; tip: string }>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    await $.command.register({ name: 'te', description: 'Open the token-economy band: segment explanations and picker' })
     const saved = await $.store.get('hidden')
     if (Array.isArray(saved)) await update($, hidden, () => saved.filter((x): x is string => typeof x === 'string'))
     await refresh($)
@@ -99,6 +112,11 @@ export const register: Register = on => {
     const result = await next(e)
     await refresh($)
     return result
+  })
+
+  on('command.run', { command: 'te' }, async $ => {
+    await update($, panel, () => 'help')
+    return { text: 'token-economy band opened above the prompt.' }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -116,6 +134,12 @@ export const register: Register = on => {
     const seg = segments(s)
     const shown = SEGMENTS.filter(id => !off.includes(id))
     const togglePanel = (p: 'help' | 'settings') => () => void update($, panel, cur => (cur === p ? null : p))
+    // The card above the prompt is shared with other plugins: draw only when there is something to do
+    // (a grepai action, work in progress, an error) or when the user opened it with /te.
+    const actionable = Boolean(bin) && !g.running && (!g.config || g.running === false)
+    if (!actionable && !working && !problem && !open) {
+      return next(e)
+    }
 
     const grepaiButtons = working ? (
       <Text dimColor>{working}… </Text>
@@ -140,16 +164,12 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box>
-          {shown.map((id, i) => (
-            <Box key={`seg-${id}`}>
-              {i > 0 ? <Text dimColor> │ </Text> : null}
-              <Text dimColor>{seg[id].text} </Text>
-              {id === 'grepai' ? grepaiButtons : null}
-            </Box>
-          ))}
+          <Text dimColor>TE {seg.grepai.text} </Text>
+          {g.running ? null : grepaiButtons}
           <Text> </Text>
           <Button key="help" label="?" onPress={togglePanel('help')} />
           <Button key="settings" label="⚙" onPress={togglePanel('settings')} />
+          {open ? <Button key="close" label="✕" onPress={() => void update($, panel, () => null)} /> : null}
           {problem ? <Text color="red"> {problem}</Text> : null}
         </Box>
         {open === 'help' ? shown.map(id => <Text key={`tip-${id}`} dimColor>{seg[id].tip}</Text>) : null}
