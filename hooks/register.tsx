@@ -1,6 +1,5 @@
-// Status band above the prompt: plugin and grepai health, token savings (session and project),
-// sibling modes (ponytail, caveman). All logic lives in scripts/band-status.mjs (testable Node);
-// this module only runs it and draws. `?` explains each segment, `⚙` picks which ones show.
+// Status band above the prompt: plugin and grepai health, token savings (session and project).
+// All logic lives in scripts/band-status.mjs (testable Node); this module only runs it and draws. `?` explains each segment, `⚙` picks which ones show.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -13,7 +12,7 @@ const error = atom({ plugin: 'token-economy', key: 'error' } as const, null)
 const panel = atom({ plugin: 'token-economy', key: 'panel' } as const, null)
 const hidden = atom({ plugin: 'token-economy', key: 'hidden' } as const, [])
 
-const SEGMENTS = ['te', 'grepai', 'session', 'project', 'ponytail', 'caveman'] as const
+const SEGMENTS = ['te', 'grepai', 'session', 'project'] as const
 type Segment = (typeof SEGMENTS)[number]
 
 const script = ($: EngineInterface) => `${$.plugin.root}/scripts/band-status.mjs`
@@ -77,7 +76,6 @@ function grepaiTip(g: BandStatus['grepai']) {
 function segments(s: BandStatus): Record<Segment, { text: string; tip: string }> {
   const g = s.grepai
   const o = s.plugin.options ?? {}
-  const mode = (name: string, m: string | null) => `${m ? '●' : '○'} ${name}${m && m !== 'full' ? `:${m}` : ''}`
   return {
     te: s.plugin.seen
       ? { text: `● TE ${s.plugin.version ?? ''}`, tip: `TE: token-economy hooks ran at this session's start (read budget ${o.read_budget}, Explore on ${o.explore_model}, policy ${o.inject_policy ? 'on' : 'off'}, grepai autostart ${o.grepai_autostart ? 'on' : 'off'}).` }
@@ -85,8 +83,6 @@ function segments(s: BandStatus): Record<Segment, { text: string; tip: string }>
     grepai: { text: g.running ? '● grepai' : `○ grepai: ${g.reason ?? 'unknown'}`, tip: `grepai: ${grepaiTip(g)}` },
     session: { text: `session ${money(s.savings.session)}`, tip: 'session: tokens kept out of context by blocked whole-file Reads (upper bound); net subtracts the slices read afterwards; ~$ is net at the session model input price, counted once.' },
     project: { text: `project ${money(s.savings.project)}`, tip: 'project: the same, summed over every session in this project.' },
-    ponytail: { text: mode('ponytail', s.modes.ponytail), tip: `ponytail: ${s.modes.ponytail ? `active (${s.modes.ponytail}), YAGNI coding mode` : 'off'}. Switch with /ponytail lite|full|ultra.` },
-    caveman: { text: mode('caveman', s.modes.caveman), tip: `caveman: ${s.modes.caveman ? `active (${s.modes.caveman}), terse replies` : 'off'}. Switch with /caveman lite|full|ultra.` },
   }
 }
 
@@ -107,7 +103,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = await read($, status)
-    if (e.props.hasSurvey || s === null) {
+    // A status kept from an older version of this module may lack fields: wait for the next refresh.
+    if (e.props.hasSurvey || !s?.grepai || !s.plugin || !s.savings) {
       return next(e)
     }
 

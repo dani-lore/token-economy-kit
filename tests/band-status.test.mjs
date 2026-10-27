@@ -129,14 +129,3 @@ test('parseEmbedder drops a model name that is not a plain Ollama tag', () => {
   assert.equal(model('x;rm'), undefined);
   assert.equal(model('$(evil)'), undefined);
 });
-
-test('modes: sibling flag files under ~/.claude, null when missing or malformed', () => {
-  const home = tmp();
-  mkdirSync(join(home, '.claude'));
-  writeFileSync(join(home, '.claude', '.ponytail-active'), 'ultra\n');
-  writeFileSync(join(home, '.claude', '.caveman-active'), '$(evil)');
-  const r = spawnSync(process.execPath, [script, '--cwd', tmp(), '--data', tmp()], {
-    cwd: tmp(), encoding: 'utf8', env: { ...process.env, PATH: '', Path: '', HOME: home, USERPROFILE: home },
-  });
-  assert.deepEqual(JSON.parse(r.stdout).modes, { ponytail: 'ultra', caveman: null });
-});

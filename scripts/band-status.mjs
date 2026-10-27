@@ -5,9 +5,6 @@
 // Never throws: on any error the best partial object is printed, exit 0.
 
 import { parseArgs } from 'node:util';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { grepaiRoot, grepaiBin } from '../hooks/grepai-root.mjs';
 import { watcherState, diagnoseStopped } from './band-grepai.mjs';
 import { dataDirs, savings, heartbeat } from './band-savings.mjs';
@@ -18,16 +15,7 @@ const out = {
   grepai: { config: false, running: null, reason: null, bin: null },
   plugin: { seen: false, version: null, options: null },
   savings: { session: zero(), project: zero() },
-  modes: { ponytail: null, caveman: null },
 };
-
-// Mode of a sibling plugin that keeps it in ~/.claude/.<name>-active (ponytail, caveman); null when off.
-function siblingMode(name) {
-  try {
-    const mode = readFileSync(join(homedir(), '.claude', `.${name}-active`), 'utf8').trim();
-    return /^[\w-]{1,20}$/.test(mode) ? mode : null;
-  } catch { return null; }
-}
 
 async function grepaiStatus(cwd) {
   const root = grepaiRoot(cwd);
@@ -53,7 +41,6 @@ try {
     const hb = heartbeat(dirs, { cwd, session: values.session });
     if (hb) out.plugin = { seen: true, version: hb.version ?? null, options: hb.options ?? null };
   } catch { /* keep partial */ }
-  out.modes = { ponytail: siblingMode('ponytail'), caveman: siblingMode('caveman') };
   try { out.savings = savings(dirs, { cwd, session: values.session, model: values.model }); } catch { /* keep partial */ }
 } catch { /* print what we have */ }
 

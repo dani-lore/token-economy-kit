@@ -5,7 +5,6 @@ export type BandStatus = {
   grepai: { config: boolean; running: boolean | null; reason: string | null; bin: string | null }
   plugin: { seen: boolean; version: string | null; options: Record<string, unknown> | null }
   savings: { session: Savings; project: Savings }
-  modes: { ponytail: string | null; caveman: string | null }
 }
 
 declare module 'claude-code' {
