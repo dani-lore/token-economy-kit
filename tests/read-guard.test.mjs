@@ -258,7 +258,7 @@ test('a deny writes a telemetry record to CLAUDE_PLUGIN_DATA/denied.jsonl, nothi
     assert.equal(runHook(payload, { cwd, env: { CLAUDE_PLUGIN_DATA: data } }).decision, 'deny');
 
     const record = lastRecord(join(data, 'denied.jsonl'));
-    assert.deepEqual(Object.keys(record), ['t', 'project', 'path', 'lines', 'bytes', 'saved']);
+    assert.deepEqual(Object.keys(record), ['t', 'project', 'path', 'lines', 'bytes', 'saved', 'session']);
     assert.equal(record.project, join(tmp, 'payload-cwd'));
     assert.equal(record.path, big);
     assert.equal(record.lines, 3000);
@@ -298,5 +298,95 @@ test('deny still happens (fail-open) when the telemetry log dir cannot be create
     const { decision, code } = runHook(read(big), { env: { CLAUDE_PLUGIN_DATA: join(tmp, 'blocker', 'data') } });
     assert.equal(decision, 'deny');
     assert.equal(code, 0);
+  });
+});
+
+// --- session id and follow-up reads ---
+
+const readsOf = (data) => {
+  try { return readFileSync(join(data, 'reads.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)); }
+  catch { return []; }
+};
+
+test('a deny row carries the session id; null without one', () => {
+  withTempDir('read-guard-sess-', (tmp) => {
+    const data = join(tmp, 'data');
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    runHook({ ...read(big), session_id: 's-1' }, { env: { CLAUDE_PLUGIN_DATA: data } });
+    assert.equal(lastRecord(join(data, 'denied.jsonl')).session, 's-1');
+    runHook(read(big), { env: { CLAUDE_PLUGIN_DATA: data } });
+    assert.equal(lastRecord(join(data, 'denied.jsonl')).session, null);
+    assert.deepEqual(readdirSync(join(data, 'sessions')), ['s-1.json']);
+  });
+});
+
+test('a deny writes { bytes, lines } per path to sessions/<id>.json, id sanitized', () => {
+  withTempDir('read-guard-map-', (tmp) => {
+    const data = join(tmp, 'data');
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    runHook({ ...read(big), session_id: '../x/y' }, { env: { CLAUDE_PLUGIN_DATA: data } });
+    assert.deepEqual(readdirSync(join(data, 'sessions')), ['.._x_y.json']);
+    const map = JSON.parse(readFileSync(join(data, 'sessions', '.._x_y.json'), 'utf8'));
+    assert.deepEqual(map, { [big]: { bytes: 300000, lines: 3000 } });
+  });
+});
+
+test('an allowed slice after a deny in the same session logs the follow-up read', () => {
+  withTempDir('read-guard-follow-', (tmp) => {
+    const data = join(tmp, 'data');
+    const env = { CLAUDE_PLUGIN_DATA: data };
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    runHook({ ...read(big), session_id: 's-1' }, { env });
+    const r = runHook({ ...read(big, { offset: 10, limit: 200 }), session_id: 's-1' }, { env });
+    assert.equal(r.stdout, '');
+    assert.equal(r.code, 0);
+    const [row, ...rest] = readsOf(data);
+    assert.equal(rest.length, 0);
+    assert.deepEqual(Object.keys(row), ['t', 'session', 'path', 'lines', 'est_tokens']);
+    assert.equal(row.session, 's-1');
+    assert.equal(row.path, big);
+    assert.equal(row.lines, 200);
+    assert.equal(row.est_tokens, 5000); // 200 lines x 100 bytes / 4
+  });
+});
+
+test('a follow-up slice is capped at the denied file line count', () => {
+  withTempDir('read-guard-follow-cap-', (tmp) => {
+    const data = join(tmp, 'data');
+    const env = { CLAUDE_PLUGIN_DATA: data, CLAUDE_PLUGIN_OPTION_READ_BUDGET: '2000' };
+    const big = makeFile('mid.txt', 100, 1000, tmp); // 25000 tokens, 100 lines
+    assert.equal(runHook({ ...read(big), session_id: 's' }, { env }).decision, 'deny');
+    runHook({ ...read(big, { limit: 500 }), session_id: 's' }, { env });
+    const [row] = readsOf(data);
+    assert.equal(row.lines, 100);
+    assert.equal(row.est_tokens, 25000);
+  });
+});
+
+test('another session, no prior deny, or no session id log no follow-up', () => {
+  withTempDir('read-guard-follow-none-', (tmp) => {
+    const data = join(tmp, 'data');
+    const env = { CLAUDE_PLUGIN_DATA: data };
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    const other = makeFile('other.txt', 3000, 100, tmp);
+    runHook({ ...read(big), session_id: 's-1' }, { env });
+    runHook({ ...read(big, { limit: 200 }), session_id: 's-2' }, { env });
+    runHook({ ...read(other, { limit: 200 }), session_id: 's-1' }, { env });
+    runHook(read(big, { limit: 200 }), { env });
+    assert.deepEqual(readsOf(data), []);
+  });
+});
+
+test('allow stays allow (fail-open) when the follow-up log cannot be written', () => {
+  withTempDir('read-guard-follow-blocked-', (tmp) => {
+    const data = join(tmp, 'data');
+    const env = { CLAUDE_PLUGIN_DATA: data };
+    const big = makeFile('big.txt', 3000, 100, tmp);
+    runHook({ ...read(big), session_id: 's-1' }, { env });
+    // A directory named reads.jsonl makes the append throw EISDIR.
+    mkdirSync(join(data, 'reads.jsonl'));
+    const r = runHook({ ...read(big, { limit: 200 }), session_id: 's-1' }, { env });
+    assert.equal(r.stdout, '');
+    assert.equal(r.code, 0);
   });
 });

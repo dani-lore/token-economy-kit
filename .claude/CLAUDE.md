@@ -60,8 +60,11 @@ Holds for all three, and it is what the tests check:
   exit code is not the deny channel.
 - **Fail-open**: any internal error (malformed stdin, missing file, unwritable telemetry) ends in a silent
   exit 0. A guardrail that blocks work because of its own bug does more harm than the waste it prevents.
-- Every read-guard deny appends `{ t, project, path, lines, bytes, saved }` to `denied.jsonl` in
-  `CLAUDE_PLUGIN_DATA` (fallback `~/.claude/token-economy`), never in the user's repo. A logging failure
+- Every read-guard deny appends `{ t, project, path, lines, bytes, saved, session }` to `denied.jsonl` and
+  records the path in `sessions/<id>.json`; an allowed Read of a path denied in the same session appends
+  `{ t, session, path, lines, est_tokens }` to `reads.jsonl`; session-start appends a heartbeat to
+  `sessions.jsonl`. All in `CLAUDE_PLUGIN_DATA` (fallback `~/.claude/token-economy`), never in the user's
+  repo (`telemetry.mjs`). A logging failure
   must not change the decision.
 
 ## Gotchas

@@ -49,3 +49,30 @@ export const sliceCost = (text) => readCost(text, SLICE_MAX_LINES);
 
 // Where deny telemetry goes: the plugin's data dir, never the user's repo.
 export const logDir = () => process.env.CLAUDE_PLUGIN_DATA || join(homedir(), '.claude', 'token-economy');
+
+// Telemetry files inside logDir().
+export const DENIED_LOG = 'denied.jsonl';
+export const SESSIONS_LOG = 'sessions.jsonl';
+export const READS_LOG = 'reads.jsonl';
+// Per-session { path: { bytes, lines } } of denied files, one JSON file per session id.
+export const SESSIONS_DIR = 'sessions';
+export const SESSION_MAP_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+// Id → file name: anything outside [\w.-] becomes `_`, so an id can never escape SESSIONS_DIR.
+export const sessionMapName = (id) => `${String(id).replace(/[^\w.-]/g, '_').slice(0, 100)}.json`;
+
+// Models the Explore router accepts as `explore_model`; anything else means the default.
+const EXPLORE_MODELS = new Set(['haiku', 'sonnet', 'opus', 'fable']);
+// Effective explore model: a known name, `inherit`, or `haiku` (userConfig `explore_model`).
+export function exploreModel() {
+  const option = (process.env.CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL ?? '').trim().toLowerCase();
+  return option === 'inherit' || EXPLORE_MODELS.has(option) ? option : 'haiku';
+}
+
+// Input price in $ per MTok by model family, calibrated 2026-10. fable: price unknown, left out.
+const INPUT_PRICE = { haiku: 0.10, sonnet: 2, opus: 4 };
+// Price of a model id by substring family match (case-insensitive); null if unknown or missing.
+export function inputPrice(modelId) {
+  const id = String(modelId ?? '').toLowerCase();
+  const family = Object.keys(INPUT_PRICE).find((f) => id.includes(f));
+  return family ? INPUT_PRICE[family] : null;
+}

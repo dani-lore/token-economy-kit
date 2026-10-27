@@ -3,24 +3,19 @@
 // Output: one JSON object, or nothing when there is nothing to say.
 // Any internal error → exit 0 silently: session start must never break.
 
-import { existsSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
-import { READ_BUDGET, SLICE_MAX_LINES } from './limits.mjs';
+import { READ_BUDGET, SLICE_MAX_LINES, SESSIONS_LOG, exploreModel } from './limits.mjs';
+import { appendLog, pruneSessionMaps } from './telemetry.mjs';
 import { readPayload } from './stdin.mjs';
+import { grepaiRoot, grepaiBin } from './grepai-root.mjs';
 
 // A toggle is off when any of the given env values is 0/false.
 // Callers pass env values, not names: the directory validator holds dynamic env reads.
 function enabled(...values) {
   return !values.some((v) => v != null && /^(0|false)$/i.test(v.trim()));
-}
-
-// Nearest directory at or above `cwd` initialized by `grepai init`, else null.
-function grepaiRoot(cwd) {
-  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-    if (existsSync(join(dir, '.grepai', 'config.yaml'))) return dir;
-    if (dirname(dir) === dir) return null;
-  }
 }
 
 function policy(hasGrepai) {
@@ -40,16 +35,39 @@ function policy(hasGrepai) {
 }
 
 // Start `grepai watch --background` in `root` unless it already runs.
-// Returns true if a start was launched. No shell: grepai(.exe) via PATH.
+// Returns true if a start was launched. No shell: grepai resolved from PATH, never from the repo.
 function startWatcher(root) {
-  const status = spawnSync('grepai', ['watch', '--status'], { cwd: root, encoding: 'utf8', timeout: 3000 });
-  if (status.error) return false; // not on PATH, or --status hung
+  const bin = grepaiBin(root);
+  if (!bin) return false;
+  const status = spawnSync(bin, ['watch', '--status'], { cwd: root, encoding: 'utf8', timeout: 3000 });
+  if (status.error) return false; // --status failed or hung
   // "not running" contains "running", so match the negative explicitly.
   if (status.status === 0 && !/not running/i.test(status.stdout || '')) return false;
-  spawn('grepai', ['watch', '--background'], { cwd: root, detached: true, stdio: 'ignore' })
+  spawn(bin, ['watch', '--background'], { cwd: root, detached: true, stdio: 'ignore' })
     .on('error', () => {})
     .unref();
   return true;
+}
+
+// Plugin version from the manifest, null if unreadable. The hook's own location is the fallback root.
+function pluginVersion() {
+  try {
+    const root = process.env.CLAUDE_PLUGIN_ROOT || fileURLToPath(new URL('..', import.meta.url));
+    return JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version ?? null;
+  } catch { return null; }
+}
+
+// Heartbeat: one line per session start with the effective options, plus housekeeping of old
+// session maps. Best effort and synchronous but tiny: never changes the hook's output.
+function logSession(payload, inject, autostart) {
+  appendLog(SESSIONS_LOG, {
+    t: Date.now(),
+    session: payload?.session_id ?? null,
+    project: process.env.CLAUDE_PROJECT_DIR || payload?.cwd || process.cwd(),
+    version: pluginVersion(),
+    options: { read_budget: READ_BUDGET, explore_model: exploreModel(), inject_policy: inject, grepai_autostart: autostart },
+  });
+  pruneSessionMaps();
 }
 
 try {
@@ -57,12 +75,15 @@ try {
   const root = grepaiRoot(payload?.cwd || process.cwd());
   const out = {};
 
-  if (enabled(process.env.CLAUDE_PLUGIN_OPTION_INJECT_POLICY)) {
+  const inject = enabled(process.env.CLAUDE_PLUGIN_OPTION_INJECT_POLICY);
+  const autostart = enabled(process.env.CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART, process.env.GREPAI_WATCH_AUTOSTART);
+  logSession(payload, inject, autostart);
+
+  if (inject) {
     out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: policy(root != null) };
   }
   const watchable = ['startup', 'resume'].includes(payload?.source);
-  if (root && watchable && enabled(process.env.CLAUDE_PLUGIN_OPTION_GREPAI_AUTOSTART, process.env.GREPAI_WATCH_AUTOSTART)
-      && startWatcher(root)) {
+  if (root && watchable && autostart && startWatcher(root)) {
     out.systemMessage = `grepai watch started in the background for ${root} (stop with: grepai watch --stop)`;
   }
   if (Object.keys(out).length) process.stdout.write(JSON.stringify(out) + '\n');

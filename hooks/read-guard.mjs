@@ -2,11 +2,13 @@
 // token cost exceeds READ_BUDGET. A Read with limit ≤ SLICE_MAX_LINES passes.
 // Contract: allow = exit 0 + no stdout; deny = exit 0 + JSON on stdout.
 
-import { openSync, readSync, closeSync, statSync, appendFileSync, mkdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { openSync, readSync, closeSync, statSync } from 'node:fs';
+import { extname } from 'node:path';
 import {
-  READ_BUDGET, SLICE_MAX_LINES, SKIP_EXTS, tokens, blindReadCost, sliceCost, logDir,
+  READ_BUDGET, SLICE_MAX_LINES, NATIVE_READ_LINES, NATIVE_READ_CAP, SKIP_EXTS, DENIED_LOG, READS_LOG,
+  tokens, blindReadCost, sliceCost,
 } from './limits.mjs';
+import { appendLog, rememberDeny, recallDeny } from './telemetry.mjs';
 import { readPayload } from './stdin.mjs';
 
 // Content is read only as a prefix of this size (line count, `saved`).
@@ -22,15 +24,20 @@ function deny(reason) {
   }) + '\n');
 }
 
-// Best-effort append to the realized-savings log in the plugin's data dir.
-// Never throws: a telemetry failure must never block or break a deny.
-function logDeny(record) {
+// A Read that passes for a path denied earlier in this session is the follow-up the deny asked for:
+// log what it will return. Sizes come from the deny record, the file is never read here.
+// Never throws, never changes the decision.
+function logFollowUp(payload, input) {
   try {
-    const dir = logDir();
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(join(dir, 'denied.jsonl'), JSON.stringify(record) + '\n');
+    const session = payload.session_id;
+    const prior = recallDeny(session, input.file_path);
+    if (!prior || !prior.lines || !prior.bytes) return; // unknown size (file over the prefix): no estimate
+    const asked = input.limit != null && Number(input.limit) > 0 ? Number(input.limit) : NATIVE_READ_LINES;
+    const lines = Math.min(asked, prior.lines);
+    const est = Math.min(tokens(Math.round(lines * prior.bytes / prior.lines)), NATIVE_READ_CAP);
+    appendLog(READS_LOG, { t: Date.now(), session, path: input.file_path, lines, est_tokens: est });
   } catch {
-    // no-op: logging is not allowed to affect the deny decision
+    // no-op: logging is not allowed to affect the allow decision
   }
 }
 
@@ -100,13 +107,22 @@ try {
   const payload = await readPayload();
   if (payload?.tool_name !== 'Read') process.exit(0);
   const input = payload.tool_input ?? {};
-  if (input.limit != null && Number(input.limit) <= SLICE_MAX_LINES) process.exit(0);
+  if (input.limit != null && Number(input.limit) <= SLICE_MAX_LINES) {
+    logFollowUp(payload, input);
+    process.exit(0);
+  }
 
   const over = overBudget(input.file_path);
   if (over) {
     const project = process.env.CLAUDE_PROJECT_DIR || payload.cwd || process.cwd();
-    logDeny({ t: Date.now(), project, path: input.file_path, lines: over.lines, bytes: over.bytes, saved: over.saved });
+    const session = payload.session_id ?? null;
+    appendLog(DENIED_LOG, {
+      t: Date.now(), project, path: input.file_path, lines: over.lines, bytes: over.bytes, saved: over.saved, session,
+    });
+    rememberDeny(session, input.file_path, { bytes: over.bytes, lines: over.lines });
     deny(over.reason);
+  } else {
+    logFollowUp(payload, input);
   }
   process.exit(0);
 } catch {

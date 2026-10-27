@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +28,7 @@ mkdirSync(nested, { recursive: true });
 function hookEnv(extra) {
   const env = { ...process.env, CLAUDE_PLUGIN_DATA: join(dir, 'plugin-data') };
   for (const k of Object.keys(env)) {
-    if (/^(CLAUDE_PLUGIN_OPTION_|GREPAI_WATCH_AUTOSTART$|PATH$)/i.test(k)) delete env[k];
+    if (/^(CLAUDE_PLUGIN_OPTION_|GREPAI_WATCH_AUTOSTART$|PATH$|CLAUDE_PROJECT_DIR$)/i.test(k)) delete env[k];
   }
   return { ...env, PATH: '', ...extra };
 }
@@ -147,4 +147,71 @@ test('a running watcher is left alone, and clear/compact never touch grepai', po
     assert.equal(run({ source, cwd: indexed }, idle.env).systemMessage, undefined);
   }
   assert.equal(existsSync(idle.log), false);
+});
+
+// --- sessions.jsonl heartbeat ---
+
+function withData(fn) {
+  const data = mkdtempSync(join(dir, 'data-'));
+  try { fn(data); } finally { rmSync(data, { recursive: true, force: true }); }
+}
+const sessionRows = (data) =>
+  readFileSync(join(data, 'sessions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+
+test('a session start appends { t, session, project, version, options } to sessions.jsonl', () => {
+  withData((data) => {
+    const root = join(dir, 'fake-root');
+    mkdirSync(join(root, '.claude-plugin'), { recursive: true });
+    writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '9.8.7' }));
+    const env = {
+      CLAUDE_PLUGIN_DATA: data,
+      CLAUDE_PLUGIN_ROOT: root,
+      CLAUDE_PLUGIN_OPTION_READ_BUDGET: '5000',
+      CLAUDE_PLUGIN_OPTION_EXPLORE_MODEL: 'Sonnet',
+      CLAUDE_PLUGIN_OPTION_INJECT_POLICY: 'false',
+    };
+    const out = run({ source: 'startup', cwd: plain, session_id: 'abc' }, env);
+    assert.equal(out, null); // output unchanged by the log: policy off, nothing to say
+    const [row, ...rest] = sessionRows(data);
+    assert.equal(rest.length, 0);
+    assert.deepEqual(Object.keys(row), ['t', 'session', 'project', 'version', 'options']);
+    assert.equal(row.session, 'abc');
+    assert.equal(row.project, plain);
+    assert.equal(row.version, '9.8.7');
+    assert.deepEqual(row.options, {
+      read_budget: 5000, explore_model: 'sonnet', inject_policy: false, grepai_autostart: true,
+    });
+  });
+});
+
+test('version is null when the manifest is unreadable, session null when absent', () => {
+  withData((data) => {
+    run({ source: 'startup', cwd: plain }, { CLAUDE_PLUGIN_DATA: data, CLAUDE_PLUGIN_ROOT: join(dir, 'nowhere') });
+    const [row] = sessionRows(data);
+    assert.equal(row.version, null);
+    assert.equal(row.session, null);
+    assert.deepEqual(row.options, { read_budget: 10000, explore_model: 'haiku', inject_policy: true, grepai_autostart: true });
+  });
+});
+
+test('session maps older than 7 days are pruned, recent ones stay', () => {
+  withData((data) => {
+    const maps = join(data, 'sessions');
+    mkdirSync(maps);
+    writeFileSync(join(maps, 'old.json'), '{}');
+    writeFileSync(join(maps, 'new.json'), '{}');
+    const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(join(maps, 'old.json'), old, old);
+    run({ source: 'startup', cwd: plain }, { CLAUDE_PLUGIN_DATA: data });
+    assert.equal(existsSync(join(maps, 'old.json')), false);
+    assert.equal(existsSync(join(maps, 'new.json')), true);
+  });
+});
+
+test('an unwritable data dir leaves the hook output unchanged', () => {
+  withData((data) => {
+    writeFileSync(join(data, 'blocker'), 'x');
+    const out = run({ source: 'startup', cwd: plain }, { CLAUDE_PLUGIN_DATA: join(data, 'blocker', 'd') });
+    assert.match(context(out), /^=== Token economy \(plugin\) ===/);
+  });
 });
